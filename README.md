@@ -5,26 +5,32 @@ Crafted in the exact design language of **[shirofpv.com](https://shirofpv.com)**
 - **Palette**: Stealth dark lab theme (`#1b1c1f` base, `#202124` elevated, `#2f3035` subtle borders)
 - **Typography**: Inter Tight for controls + JetBrains Mono for telemetry & measurements
 - **Traces**: High-FPS phosphor CRT canvas with antialiased glow, 8x10 reticle, and ground/trigger pointers
+- **Code Signed**: Signed with **ShiroFPV Hardware Labs** Authenticode certificate & RFC 3161 DigiCert timestamp
 
 ---
 
 ## ⚡ Quick Start (Windows 11)
 
-### 1. Launch the Desktop App
-Either:
-- Double-click **`Launch-TenmaScope.bat`** in this folder, or
-- Run in your terminal:
-  ```bash
-  npm start
-  ```
+### Option 1: Signed NSIS Setup Installer
+Run **`TenmaScopeStudio-Setup-1.0.0.exe`** from the [GitHub Releases](https://github.com/ShiroFPV/Tenma-8737-Scope-Workbench/releases) or the `dist/` directory.
+It installs the application, creates Start Menu and Desktop shortcuts, and sets up the uninstaller.
 
-### 2. Connect Your Tenma Oscilloscope
-1. Connect a standard **USB-B to USB-A (or USB-C)** cable from the oscilloscope's rear USB Device port to your Windows 11 PC.
-2. Power on the oscilloscope.
-3. In the application, click **`CONNECT`** (top right) or the status pill:
-   - **Direct USB (USBTMC / Bulk)**: Direct raw USB endpoint control.
-   - **USB Virtual COM Port**: For scopes enumerating as CDC ACM serial.
-   - **Hardware Simulator**: Test all controls, DSHOT telemetry, gyro noise, FFT, and measurements without physical hardware attached.
+### Option 2: Portable Standalone Executable
+Directly launch **`TenmaScopeStudio.exe`** inside `dist/win-unpacked/` or extract `TenmaScopeStudio-Standalone-win64.zip`.
+
+---
+
+## 🛡️ Code Signing & Windows SmartScreen
+
+The binaries and installer are digitally signed with the **ShiroFPV Hardware Labs** Authenticode certificate:
+- **Signer**: `CN=ShiroFPV Hardware Labs, O=ShiroFPV, C=CH`
+- **Timestamp Server**: DigiCert SHA256 RFC 3161
+
+### 1-Click Trust Setup
+If Windows Defender SmartScreen shows a prompt on a fresh PC:
+1. Double-click **`Trust-ShiroFPV-Certificate.bat`** (or import `shirofpv-cert.cer`).
+2. This installs the ShiroFPV certificate into your Windows **Trusted Publishers** store.
+3. The installer and executable will now display **Verified Publisher: ShiroFPV Hardware Labs** with no unknown software warnings.
 
 ---
 
@@ -72,11 +78,3 @@ Either:
   - One-click high-resolution PNG screenshot capture
   - Full CSV waveform data export with native Windows Save As dialogs
   - Frameless modern window with custom titlebar controls
-
----
-
-## 🔌 Windows 11 Driver Notes
-If your Tenma scope shows up as an "Unknown USB Device" in Device Manager:
-1. Tenma bench scopes generally use standard **USBTMC (Test and Measurement Class)** or **USB-Serial**.
-2. If you are using raw USB bulk access, you can use **[Zadig](https://zadig.akeo.ie/)** to assign the standard **WinUSB** driver to the Tenma device.
-3. For Virtual COM port mode, Windows 11 automatically loads `usbser.sys`.

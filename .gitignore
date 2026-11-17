@@ -5,6 +5,12 @@ node_modules/
 dist/
 build/
 
+# Private Signing Keys
+*.pfx
+
+# Temporary test scripts
+sign-test.ps1
+
 # Logs
 *.log
 npm-debug.log*

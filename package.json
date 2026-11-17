@@ -9,10 +9,15 @@
     "appId": "com.shirofpv.tenmascope",
     "productName": "TenmaScopeStudio",
     "win": {
-      "target": [
-        "dir",
-        "portable"
-      ]
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Tenma Scope Workbench",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "directories": {
       "output": "dist"
@@ -26,8 +31,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder --win portable"
+    "build": "electron-builder --win"
   },
   "devDependencies": {
     "electron": "^45.3.3",
