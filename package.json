@@ -1,0 +1,36 @@
+{
+  "name": "tenma-scope-studio",
+  "version": "1.0.0",
+  "description": "ShiroFPV Desktop Workbench for Tenma 8737 & 72-87XX Digital Storage Oscilloscopes",
+  "main": "main.js",
+  "author": "ShiroFPV",
+  "license": "MIT",
+  "build": {
+    "appId": "com.shirofpv.tenmascope",
+    "productName": "TenmaScopeStudio",
+    "win": {
+      "target": [
+        "dir",
+        "portable"
+      ]
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "public/**/*",
+      "tenma_scope_api.py"
+    ]
+  },
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^45.3.3",
+    "electron-builder": "^26.7.0"
+  }
+}

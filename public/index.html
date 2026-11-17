@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShiroFPV // Tenma 8737 DSO Workbench</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ffd000'><path d='M3 12h3l2-6 4 12 3-8 2 4h4'/></svg>">
+  <link rel="stylesheet" href="css/shiro-theme.css">
+</head>
+<body>
+
+  <!-- Top Native App Titlebar / Navigation -->
+  <header class="header">
+    <div class="brand-group">
+      <div class="brand-badge">
+        <div class="brand-logo">S</div>
+        <div class="brand-text">SHIRO // DSO</div>
+      </div>
+      <div class="model-tag">TENMA 8737 / 72-87XX</div>
+    </div>
+
+    <div class="header-status">
+      <div class="status-indicator" id="connStatusBtn" title="Click to configure USB / Serial connection">
+        <span class="status-dot sim" id="statusDot"></span>
+        <span id="statusText">SIMULATION READY</span>
+      </div>
+
+      <div class="run-badge running" id="runBadge">RUNNING</div>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn btn-primary" id="btnAutoSet" title="Auto setup all channels and trigger">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        AUTO SET
+      </button>
+
+      <button class="btn btn-success" id="btnRunStop">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span id="runStopLabel">STOP</span>
+      </button>
+
+      <button class="btn" id="btnSingle">
+        SINGLE
+      </button>
+
+      <button class="btn" id="btnScreenshot" title="Capture high-res screen PNG">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        CAPTURE
+      </button>
+
+      <button class="btn" id="btnExportCSV" title="Export waveform points to CSV">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        CSV
+      </button>
+
+      <button class="btn btn-primary" id="btnConnectModal">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+        CONNECT
+      </button>
+
+      <!-- Windows Desktop Controls -->
+      <div class="window-controls">
+        <button class="win-btn" id="winMinBtn" title="Minimize">
+          <svg width="10" height="10" viewBox="0 0 12 12"><line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.5"/></svg>
+        </button>
+        <button class="win-btn" id="winMaxBtn" title="Maximize">
+          <svg width="10" height="10" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+        </button>
+        <button class="win-btn close" id="winCloseBtn" title="Close">
+          <svg width="10" height="10" viewBox="0 0 12 12"><line x1="1.5" y1="1.5" x2="10.5" y2="10.5" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="1.5" x2="1.5" y2="10.5" stroke="currentColor" stroke-width="1.5"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Application Workspace -->
+  <main class="studio-layout">
+    
+    <!-- Left: Oscilloscope Viewport & Bottom Drawers -->
+    <div class="scope-viewport-container">
+      
+      <!-- Top Canvas Telemetry HUD -->
+      <div class="canvas-hud">
+        <div class="hud-left">
+          <div class="hud-item">
+            <span>TIME:</span>
+            <span class="hud-val" id="hudTimebase">500 μs/div</span>
+          </div>
+          <div class="hud-item">
+            <span>POS:</span>
+            <span class="hud-val" id="hudTimePos">0.00 s</span>
+          </div>
+          <div class="hud-item">
+            <span>CH1:</span>
+            <span class="hud-val ch1" id="hudCh1">1.00 V/div (DC)</span>
+          </div>
+          <div class="hud-item">
+            <span>CH2:</span>
+            <span class="hud-val ch2" id="hudCh2">2.00 V/div (DC)</span>
+          </div>
+          <div class="hud-item">
+            <span>TRIG:</span>
+            <span class="hud-val" id="hudTrigger">CH1 1.25V ↗</span>
+          </div>
+        </div>
+
+        <div class="hud-right">
+          <div class="hud-item">
+            <span>SAMPLE RATE:</span>
+            <span class="hud-val" id="hudSampleRate">2.00 GSa/s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Waveform CRT Canvas -->
+      <div class="canvas-wrapper" id="canvasWrapper">
+        <canvas id="scopeCanvas"></canvas>
+        <div class="screen-indicators">
+          <div class="ground-marker ch1" id="gndCh1" style="top: 50%;">1▶</div>
+          <div class="ground-marker ch2" id="gndCh2" style="top: 50%; display: none;">2▶</div>
+          <div class="ground-marker ch3" id="gndCh3" style="top: 50%; display: none;">3▶</div>
+          <div class="ground-marker ch4" id="gndCh4" style="top: 50%; display: none;">4▶</div>
+          <div class="trig-marker" id="trigMarker" style="top: 40%;">◀T</div>
+        </div>
+      </div>
+
+      <!-- Bottom Dock: Measurements, Cursors, FFT, SCPI -->
+      <div class="bottom-dock">
+        <div class="dock-header">
+          <div class="dock-tabs">
+            <button class="dock-tab active" data-tab="measurements">AUTOMATED MEASUREMENTS</button>
+            <button class="dock-tab" data-tab="fft">FFT SPECTRUM</button>
+            <button class="dock-tab" data-tab="cursors">CURSORS & MATH</button>
+            <button class="dock-tab" data-tab="scpi">SCPI CONSOLE</button>
+          </div>
+          <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);">
+            BANDWIDTH: 200MHz | HARDWARE LINK READY
+          </div>
+        </div>
+
+        <!-- Tab 1: Measurements -->
+        <div class="dock-content" id="tabContent-measurements">
+          <div class="measure-grid" id="measurementsGrid">
+            <!-- Dynamic Measurement Cards Generated in JS -->
+          </div>
+        </div>
+
+        <!-- Tab 2: FFT Spectrum -->
+        <div class="dock-content" id="tabContent-fft" style="display: none;">
+          <div style="display: flex; height: 100%; gap: 14px;">
+            <div style="flex: 1; position: relative; background: #0c0d0f; border-radius: 6px; border: 1px solid var(--border-subtle); overflow: hidden;">
+              <canvas id="fftCanvas" style="width: 100%; height: 100%; display: block;"></canvas>
+            </div>
+            <div style="width: 220px; display: flex; flex-direction: column; gap: 8px; font-family: var(--font-mono); font-size: 11px;">
+              <div class="control-item">
+                <span class="control-sublabel">SOURCE CHANNEL</span>
+                <select class="select-custom" id="fftSource">
+                  <option value="1">Channel 1 (CH1)</option>
+                  <option value="2">Channel 2 (CH2)</option>
+                </select>
+              </div>
+              <div class="control-item">
+                <span class="control-sublabel">WINDOW TYPE</span>
+                <select class="select-custom" id="fftWindow">
+                  <option value="hanning">Hanning</option>
+                  <option value="flattop">Flattop</option>
+                  <option value="rectangular">Rectangular</option>
+                </select>
+              </div>
+              <div class="measure-card" style="margin-top: auto;">
+                <div class="measure-label">PEAK DOMINANT FREQ</div>
+                <div class="measure-val" id="fftPeakFreq" style="font-size: 13px;">1.000 kHz</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Cursors & Math -->
+        <div class="dock-content" id="tabContent-cursors" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;">
+            <div class="measure-card">
+              <div class="measure-label">TIME X1 / X2</div>
+              <div class="measure-val" id="curX1X2" style="font-size: 12px;">-250μs / +250μs</div>
+            </div>
+            <div class="measure-card">
+              <div class="measure-label">DELTA T (ΔX)</div>
+              <div class="measure-val" id="curDeltaX">500.0 μs</div>
+            </div>
+            <div class="measure-card">
+              <div class="measure-label">FREQUENCY (1/ΔX)</div>
+              <div class="measure-val" id="curFreq">2.000 kHz</div>
+            </div>
+            <div class="measure-card">
+              <div class="measure-label">DELTA V (ΔY)</div>
+              <div class="measure-val" id="curDeltaY">2.450 V</div>
+            </div>
+          </div>
+          <div style="margin-top: 10px; display: flex; gap: 16px; align-items: center;">
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer;">
+              <input type="checkbox" id="chkShowCursors"> Enable Interactive Cursors
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer;">
+              <input type="checkbox" id="chkMathTrace"> Enable Math Trace (CH1 - CH2)
+            </label>
+          </div>
+        </div>
+
+        <!-- Tab 4: SCPI Console -->
+        <div class="dock-content" id="tabContent-scpi" style="display: none;">
+          <div class="scpi-container">
+            <div class="scpi-log" id="scpiLog"></div>
+            <div class="scpi-input-row">
+              <input type="text" class="scpi-input" id="scpiCmdInput" placeholder="Enter SCPI command (e.g. *IDN?, :MEAS:VOLT?, :TIM:SCAL 1e-3, :TRIG:STAT?)...">
+              <button class="btn btn-primary" id="btnSendScpi">SEND</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Right: Hardware Emulation Control Rack -->
+    <aside class="control-rack">
+      
+      <!-- Channel Selection & Switch -->
+      <div class="rack-section">
+        <div class="rack-header">
+          <span>VERTICAL SUBSYSTEM</span>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">VOLTS / OFFSET</span>
+        </div>
+
+        <div class="channel-selector-pills">
+          <div class="chan-pill active ch1" data-ch="1">CH 1</div>
+          <div class="chan-pill ch2" data-ch="2">CH 2</div>
+          <div class="chan-pill ch3" data-ch="3">CH 3</div>
+          <div class="chan-pill ch4" data-ch="4">CH 4</div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label" id="currentChLabel">Channel 1 Active</span>
+          <label class="switch">
+            <input type="checkbox" id="chkChannelEnable" checked>
+            <span class="slider-round"></span>
+          </label>
+        </div>
+
+        <div class="control-group-grid" style="margin-top: 14px;">
+          <div class="control-item">
+            <span class="control-sublabel">VOLTS / DIV</span>
+            <div class="stepper-box">
+              <button class="stepper-btn" id="btnVoltDown">−</button>
+              <span class="stepper-val" id="valVoltDiv">1.00 V</span>
+              <button class="stepper-btn" id="btnVoltUp">+</button>
+            </div>
+          </div>
+
+          <div class="control-item">
+            <span class="control-sublabel">COUPLING</span>
+            <select class="select-custom" id="selCoupling">
+              <option value="DC">DC</option>
+              <option value="AC">AC</option>
+              <option value="GND">GND</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control-item" style="margin-top: 10px;">
+          <div style="display: flex; justify-content: space-between;">
+            <span class="control-sublabel">VERTICAL POSITION / OFFSET</span>
+            <span class="control-sublabel" id="lblVertOffset" style="color: var(--text-primary);">0.00 div</span>
+          </div>
+          <input type="range" class="slider-range" id="rngVertOffset" min="-4" max="4" step="0.1" value="0">
+        </div>
+
+        <div class="control-group-grid" style="margin-top: 12px;">
+          <div class="control-item">
+            <span class="control-sublabel">PROBE ATTENUATION</span>
+            <select class="select-custom" id="selProbe">
+              <option value="1">1X</option>
+              <option value="10" selected>10X</option>
+              <option value="100">100X</option>
+              <option value="1000">1000X</option>
+            </select>
+          </div>
+          <div class="control-item">
+            <span class="control-sublabel">BW LIMIT</span>
+            <select class="select-custom" id="selBwLimit">
+              <option value="FULL">Full 200MHz</option>
+              <option value="20M">20 MHz</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Horizontal System -->
+      <div class="rack-section">
+        <div class="rack-header">
+          <span>HORIZONTAL TIMEBASE</span>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">TIME / DELAY</span>
+        </div>
+
+        <div class="control-item">
+          <span class="control-sublabel">TIME / DIV</span>
+          <div class="stepper-box">
+            <button class="stepper-btn" id="btnTimeDown">−</button>
+            <span class="stepper-val" id="valTimeDiv">500 μs</span>
+            <button class="stepper-btn" id="btnTimeUp">+</button>
+          </div>
+        </div>
+
+        <div class="control-item" style="margin-top: 12px;">
+          <div style="display: flex; justify-content: space-between;">
+            <span class="control-sublabel">HORIZONTAL POSITION (DELAY)</span>
+            <span class="control-sublabel" id="lblHorizPos" style="color: var(--text-primary);">0.00 s</span>
+          </div>
+          <input type="range" class="slider-range" id="rngHorizPos" min="-5" max="5" step="0.1" value="0">
+        </div>
+
+        <div class="control-item" style="margin-top: 12px;">
+          <span class="control-sublabel">ACQUISITION MODE</span>
+          <select class="select-custom" id="selAcqMode">
+            <option value="NORMAL">Normal Real-Time</option>
+            <option value="PEAK">Peak Detect</option>
+            <option value="AVERAGE">Averaging (16x)</option>
+            <option value="HIGHRES">High Resolution</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Trigger System -->
+      <div class="rack-section">
+        <div class="rack-header">
+          <span>TRIGGER SYSTEM</span>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">EDGE / SYNC</span>
+        </div>
+
+        <div class="control-group-grid">
+          <div class="control-item">
+            <span class="control-sublabel">SOURCE</span>
+            <select class="select-custom" id="selTrigSource">
+              <option value="CH1">CH 1</option>
+              <option value="CH2">CH 2</option>
+              <option value="CH3">CH 3</option>
+              <option value="CH4">CH 4</option>
+              <option value="EXT">EXT Trig</option>
+            </select>
+          </div>
+
+          <div class="control-item">
+            <span class="control-sublabel">SWEEP MODE</span>
+            <select class="select-custom" id="selTrigMode">
+              <option value="AUTO">AUTO</option>
+              <option value="NORMAL">NORMAL</option>
+              <option value="SINGLE">SINGLE</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control-group-grid" style="margin-top: 10px;">
+          <div class="control-item">
+            <span class="control-sublabel">SLOPE</span>
+            <select class="select-custom" id="selTrigSlope">
+              <option value="RISING">Rising ↗</option>
+              <option value="FALLING">Falling ↘</option>
+              <option value="EITHER">Either ↕</option>
+            </select>
+          </div>
+
+          <div class="control-item">
+            <span class="control-sublabel">COUPLING</span>
+            <select class="select-custom" id="selTrigCoupling">
+              <option value="DC">DC</option>
+              <option value="AC">AC</option>
+              <option value="HFREJ">HF Reject</option>
+              <option value="LFREJ">LF Reject</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control-item" style="margin-top: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span class="control-sublabel">TRIGGER LEVEL</span>
+            <button class="btn" id="btnTrig50" style="padding: 2px 6px; font-size: 10px; height: 20px;">SET 50%</button>
+          </div>
+          <input type="range" class="slider-range" id="rngTrigLevel" min="-4" max="4" step="0.05" value="0.5">
+          <div style="text-align: right; font-family: var(--font-mono); font-size: 10.5px; color: var(--trig-color); margin-top: 4px;" id="lblTrigLevel">
+            +0.50 V
+          </div>
+        </div>
+      </div>
+
+      <!-- Presets & Signal Emulation -->
+      <div class="rack-section">
+        <div class="rack-header">
+          <span>LAB BENCH TOOLS</span>
+        </div>
+
+        <div class="control-item">
+          <span class="control-sublabel">SIMULATION TEST SIGNAL</span>
+          <select class="select-custom" id="selSimSignal">
+            <option value="drone_rpm">ShiroFPV Motor DSHOT & Telemetry</option>
+            <option value="gyro_noise">Flight Controller Gyro Noise & SPI</option>
+            <option value="sine">1 kHz Calibration Sine Wave</option>
+            <option value="square">1 kHz Probe Compensation Square Wave</option>
+            <option value="pwm">400 Hz Servo PWM Signal</option>
+          </select>
+        </div>
+
+        <div style="margin-top: 14px; display: flex; gap: 8px;">
+          <button class="btn btn-danger" id="btnResetScope" style="flex: 1;" title="Send *RST to scope">
+            RESET (*RST)
+          </button>
+          <button class="btn" id="btnForceTrig" style="flex: 1;" title="Force Trigger">
+            FORCE TRIG
+          </button>
+        </div>
+      </div>
+
+    </aside>
+  </main>
+
+  <!-- Connection Setup Modal -->
+  <div class="modal-overlay" id="connModal">
+    <div class="modal-card">
+      <div class="modal-title">
+        <span>CONNECT TENMA 8737 SCOPE</span>
+        <button class="btn btn-icon" id="btnCloseModal" style="border: none; background: transparent;">✕</button>
+      </div>
+      
+      <p class="modal-desc">
+        Connect your Tenma oscilloscope to your Windows 11 PC using the <strong>USB-B</strong> cable. Choose how you want to link the device:
+      </p>
+
+      <div class="conn-option-list">
+        <!-- WebUSB Option -->
+        <div class="conn-option selected" id="optWebUSB">
+          <div>
+            <div class="conn-name">Direct USB (USBTMC / Bulk Transfer)</div>
+            <div class="conn-detail">Direct hardware USB link. Communicates with Tenma & Uni-Trend USB endpoints.</div>
+          </div>
+          <button class="btn btn-primary" id="btnConnectWebUSB">PAIR USB</button>
+        </div>
+
+        <!-- WebSerial Option -->
+        <div class="conn-option" id="optWebSerial">
+          <div>
+            <div class="conn-name">USB Virtual COM Port (Serial / CDC)</div>
+            <div class="conn-detail">Standard serial link (COM1, COM3, etc.) for scopes enumerating as CDC ACM serial.</div>
+          </div>
+          <button class="btn" id="btnConnectSerial">SELECT COM</button>
+        </div>
+
+        <!-- Simulator Option -->
+        <div class="conn-option" id="optSim">
+          <div>
+            <div class="conn-name">Built-in Hardware Simulator</div>
+            <div class="conn-detail">Test controls, analyze DSHOT / gyro signals, measurements & FFT without physical scope.</div>
+          </div>
+          <button class="btn" id="btnEnableSim">ACTIVATE</button>
+        </div>
+      </div>
+
+      <div id="detectedDevicesBox" style="background: var(--bg-deep); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px; font-family: var(--font-mono); font-size: 11px; max-height: 100px; overflow-y: auto;">
+        <div style="color: var(--text-muted);">Detected Windows USB / COM Devices:</div>
+        <div id="deviceListLog" style="margin-top: 4px; color: var(--text-secondary);">Scanning system...</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
