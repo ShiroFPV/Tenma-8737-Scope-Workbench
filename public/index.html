@@ -565,15 +565,33 @@
 
         <!-- Step 3 -->
         <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-subtle);">
-          <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">3. Universal 60-Second Fix (If Yellow ⚠️ Mark)</div>
-          <p>If your Tenma scope shows up as an unrecognized device in Windows, you can install the standard Microsoft WinUSB driver in 60 seconds with no vendor software:</p>
-          <ol style="margin: 6px 0 0 18px; color: var(--text-muted); font-size: 12px;">
-            <li>Download the free open-source tool <strong>Zadig</strong> from <a href="https://zadig.akeo.ie" target="_blank" style="color: var(--ch2-color);">zadig.akeo.ie</a>.</li>
-            <li>In Zadig, click <strong>Options</strong> $\rightarrow$ check <strong>List All Devices</strong>.</li>
-            <li>Select your Tenma / Uni-Trend scope from the dropdown menu.</li>
-            <li>Select <strong>WinUSB</strong> as the target driver and click <strong>Replace Driver</strong>.</li>
-            <li>Windows will now recognize the scope immediately!</li>
+          <div style="font-weight: 600; color: var(--accent); margin-bottom: 6px;">3. WinUSB Turned It Into a USB Device (Not COM)? Here is the Fix:</div>
+          <p style="font-size: 12px; margin-bottom: 6px;">
+            <strong>WinUSB is a raw USB driver, not a serial driver.</strong> When WinUSB is applied, Windows moves the scope out of <em>Ports (COM & LPT)</em> and into <em>Universal Serial Bus devices</em>, preventing it from having a COM number.
+          </p>
+          <div style="font-weight: 600; color: var(--text-primary); font-size: 12px; margin-bottom: 4px;">⚡ 30-Second Fix to restore it back to a COM port:</div>
+          <ol style="margin: 0 0 6px 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5;">
+            <li>Click <strong>Open Device Manager</strong> button above.</li>
+            <li>Expand <strong>Universal Serial Bus devices</strong> and find your device (e.g. <em>USB Serial Device</em> or <em>WinUSB Device</em>).</li>
+            <li>Right-click it → choose <strong>Update driver</strong> → <strong>Browse my computer for drivers</strong>.</li>
+            <li>Click <strong>"Let me pick from a list of available drivers on my computer"</strong>.</li>
+            <li>Select <strong style="color: var(--success);">"USB Serial Device"</strong> (standard Windows 11 driver) and click <strong>Next</strong>.</li>
+            <li>The scope will instantly reappear under <strong>Ports (COM & LPT)</strong> with a COM number (e.g. <code>COM3</code>)!</li>
           </ol>
+          <div style="font-size: 11.5px; color: var(--text-muted); border-top: 1px solid var(--border-subtle); padding-top: 6px;">
+            <em>Alternative:</em> Right-click the device → <strong>Uninstall device</strong> → ⚠️ <strong>Check "Attempt to remove the driver for this device"</strong> → Click Uninstall → Re-plug the USB cable. Windows 11 will automatically restore its native serial COM driver.
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+          <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">4. Drivers Reference for Tenma / Uni-T Oscilloscopes</div>
+          <div style="font-size: 11.5px; color: var(--text-muted); display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div>• <strong>Native Windows 11:</strong> <code>usbser.sys</code> (Built-in)</div>
+            <div>• <strong>STM32 VCP:</strong> STMicroelectronics Virtual COM Port</div>
+            <div>• <strong>WCH USB:</strong> CH340 / CH341SER Driver</div>
+            <div>• <strong>Silicon Labs:</strong> CP210x Universal VCP Driver</div>
+          </div>
         </div>
 
         <div style="text-align: right; margin-top: 4px;">
