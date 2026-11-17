@@ -3,601 +3,705 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ShiroFPV // Tenma 8737 DSO Workbench</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ffd000'><path d='M3 12h3l2-6 4 12 3-8 2 4h4'/></svg>">
+  <title>Tenma 8737 Oscilloscope Control — ShiroFPV</title>
   <link rel="stylesheet" href="css/shiro-theme.css">
 </head>
 <body>
 
-  <!-- Top Native App Titlebar / Navigation -->
-  <header class="header">
-    <div class="brand-group">
-      <div class="brand-badge">
-        <div class="brand-logo">S</div>
-        <div class="brand-text">SHIRO // DSO</div>
+  <!-- 1. NATIVE TITLEBAR -->
+  <header class="titlebar">
+    <div class="titlebar-left">
+      <div class="app-mark" aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="1"/>
+          <polyline points="2.5,8.5 5,8.5 6.5,4.5 9,11.5 10.8,8.5 13.5,8.5"/>
+        </svg>
       </div>
-      <div class="model-tag">TENMA 8737 / 72-87XX</div>
+      <span class="app-title">Tenma 8737</span>
+      <span class="app-divider">/</span>
+      <span class="app-brand">ShiroFPV Instrument Control</span>
+      <span class="idn-readout" id="idnReadout">No Instrument Connected</span>
     </div>
 
-    <div class="header-status">
-      <div class="status-indicator" id="connStatusBtn" title="Click to configure USB / Serial connection">
-        <span class="status-dot sim" id="statusDot"></span>
-        <span id="statusText">SIMULATION READY</span>
-      </div>
-
-      <div class="run-badge running" id="runBadge">RUNNING</div>
-    </div>
-
-    <div class="header-actions">
-      <button class="btn btn-primary" id="btnAutoSet" title="Auto setup all channels and trigger">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-        AUTO SET
+    <div class="window-controls">
+      <button class="win-btn" id="winMin" title="Minimize">
+        <svg width="10" height="10" viewBox="0 0 10 10"><line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="1.2"/></svg>
       </button>
-
-      <button class="btn btn-success" id="btnRunStop">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span id="runStopLabel">STOP</span>
+      <button class="win-btn" id="winMax" title="Maximize">
+        <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
       </button>
-
-      <button class="btn" id="btnSingle">
-        SINGLE
+      <button class="win-btn close" id="winClose" title="Close">
+        <svg width="10" height="10" viewBox="0 0 10 10"><line x1="1.5" y1="1.5" x2="8.5" y2="8.5" stroke="currentColor" stroke-width="1.2"/><line x1="8.5" y1="1.5" x2="1.5" y2="8.5" stroke="currentColor" stroke-width="1.2"/></svg>
       </button>
-
-      <button class="btn" id="btnScreenshot" title="Capture high-res screen PNG">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-        CAPTURE
-      </button>
-
-      <button class="btn" id="btnExportCSV" title="Export waveform points to CSV">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        CSV
-      </button>
-
-      <button class="btn" id="btnDriverGuide" title="Open Hardware & Driver Setup Guide">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        DRIVER GUIDE
-      </button>
-
-      <button class="btn btn-primary" id="btnConnectModal">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
-        CONNECT
-      </button>
-
-      <!-- Windows Desktop Controls -->
-      <div class="window-controls">
-        <button class="win-btn" id="winMinBtn" title="Minimize">
-          <svg width="10" height="10" viewBox="0 0 12 12"><line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.5"/></svg>
-        </button>
-        <button class="win-btn" id="winMaxBtn" title="Maximize">
-          <svg width="10" height="10" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
-        </button>
-        <button class="win-btn close" id="winCloseBtn" title="Close">
-          <svg width="10" height="10" viewBox="0 0 12 12"><line x1="1.5" y1="1.5" x2="10.5" y2="10.5" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="1.5" x2="1.5" y2="10.5" stroke="currentColor" stroke-width="1.5"/></svg>
-        </button>
-      </div>
     </div>
   </header>
 
-  <!-- Main Application Workspace -->
-  <main class="studio-layout">
-    
-    <!-- Left: Oscilloscope Viewport & Bottom Drawers -->
-    <div class="scope-viewport-container">
-      
-      <!-- Top Canvas Telemetry HUD -->
-      <div class="canvas-hud">
-        <div class="hud-left">
-          <div class="hud-item">
-            <span>TIME:</span>
-            <span class="hud-val" id="hudTimebase">500 μs/div</span>
-          </div>
-          <div class="hud-item">
-            <span>POS:</span>
-            <span class="hud-val" id="hudTimePos">0.00 s</span>
-          </div>
-          <div class="hud-item">
-            <span>CH1:</span>
-            <span class="hud-val ch1" id="hudCh1">1.00 V/div (DC)</span>
-          </div>
-          <div class="hud-item">
-            <span>CH2:</span>
-            <span class="hud-val ch2" id="hudCh2">2.00 V/div (DC)</span>
-          </div>
-          <div class="hud-item">
-            <span>TRIG:</span>
-            <span class="hud-val" id="hudTrigger">CH1 1.25V ↗</span>
-          </div>
-        </div>
+  <!-- 2. PRECISION INSTRUMENT TOOLBAR -->
+  <nav class="toolbar">
+    <div class="toolbar-group">
+      <button class="conn-pill" id="btnOpenConn" title="Configure Instrument Interface">
+        <span class="led" id="connLed"></span>
+        <span id="connLabel">OFFLINE</span>
+      </button>
+      <button class="tb-btn" id="btnDisconnectQuick" style="display: none;" title="Disconnect Instrument">Disconnect</button>
 
-        <div class="hud-right">
-          <div class="hud-item">
-            <span>SAMPLE RATE:</span>
-            <span class="hud-val" id="hudSampleRate">2.00 GSa/s</span>
-          </div>
-        </div>
-      </div>
+      <div class="toolbar-sep"></div>
 
-      <!-- Waveform CRT Canvas -->
-      <div class="canvas-wrapper" id="canvasWrapper">
-        <canvas id="scopeCanvas"></canvas>
-        <div class="screen-indicators">
-          <div class="ground-marker ch1" id="gndCh1" style="top: 50%;">1▶</div>
-          <div class="ground-marker ch2" id="gndCh2" style="top: 50%; display: none;">2▶</div>
-          <div class="ground-marker ch3" id="gndCh3" style="top: 50%; display: none;">3▶</div>
-          <div class="ground-marker ch4" id="gndCh4" style="top: 50%; display: none;">4▶</div>
-          <div class="trig-marker" id="trigMarker" style="top: 40%;">◀T</div>
-        </div>
-      </div>
-
-      <!-- Bottom Dock: Measurements, Cursors, FFT, SCPI -->
-      <div class="bottom-dock">
-        <div class="dock-header">
-          <div class="dock-tabs">
-            <button class="dock-tab active" data-tab="measurements">AUTOMATED MEASUREMENTS</button>
-            <button class="dock-tab" data-tab="fft">FFT SPECTRUM</button>
-            <button class="dock-tab" data-tab="cursors">CURSORS & MATH</button>
-            <button class="dock-tab" data-tab="scpi">SCPI CONSOLE</button>
-          </div>
-          <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);">
-            BANDWIDTH: 200MHz | HARDWARE LINK READY
-          </div>
-        </div>
-
-        <!-- Tab 1: Measurements -->
-        <div class="dock-content" id="tabContent-measurements">
-          <div class="measure-grid" id="measurementsGrid">
-            <!-- Dynamic Measurement Cards Generated in JS -->
-          </div>
-        </div>
-
-        <!-- Tab 2: FFT Spectrum -->
-        <div class="dock-content" id="tabContent-fft" style="display: none;">
-          <div style="display: flex; height: 100%; gap: 14px;">
-            <div style="flex: 1; position: relative; background: #0c0d0f; border-radius: 6px; border: 1px solid var(--border-subtle); overflow: hidden;">
-              <canvas id="fftCanvas" style="width: 100%; height: 100%; display: block;"></canvas>
-            </div>
-            <div style="width: 220px; display: flex; flex-direction: column; gap: 8px; font-family: var(--font-mono); font-size: 11px;">
-              <div class="control-item">
-                <span class="control-sublabel">SOURCE CHANNEL</span>
-                <select class="select-custom" id="fftSource">
-                  <option value="1">Channel 1 (CH1)</option>
-                  <option value="2">Channel 2 (CH2)</option>
-                </select>
-              </div>
-              <div class="control-item">
-                <span class="control-sublabel">WINDOW TYPE</span>
-                <select class="select-custom" id="fftWindow">
-                  <option value="hanning">Hanning</option>
-                  <option value="flattop">Flattop</option>
-                  <option value="rectangular">Rectangular</option>
-                </select>
-              </div>
-              <div class="measure-card" style="margin-top: auto;">
-                <div class="measure-label">PEAK DOMINANT FREQ</div>
-                <div class="measure-val" id="fftPeakFreq" style="font-size: 13px;">1.000 kHz</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Tab 3: Cursors & Math -->
-        <div class="dock-content" id="tabContent-cursors" style="display: none;">
-          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;">
-            <div class="measure-card">
-              <div class="measure-label">TIME X1 / X2</div>
-              <div class="measure-val" id="curX1X2" style="font-size: 12px;">-250μs / +250μs</div>
-            </div>
-            <div class="measure-card">
-              <div class="measure-label">DELTA T (ΔX)</div>
-              <div class="measure-val" id="curDeltaX">500.0 μs</div>
-            </div>
-            <div class="measure-card">
-              <div class="measure-label">FREQUENCY (1/ΔX)</div>
-              <div class="measure-val" id="curFreq">2.000 kHz</div>
-            </div>
-            <div class="measure-card">
-              <div class="measure-label">DELTA V (ΔY)</div>
-              <div class="measure-val" id="curDeltaY">2.450 V</div>
-            </div>
-          </div>
-          <div style="margin-top: 10px; display: flex; gap: 16px; align-items: center;">
-            <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer;">
-              <input type="checkbox" id="chkShowCursors"> Enable Interactive Cursors
-            </label>
-            <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer;">
-              <input type="checkbox" id="chkMathTrace"> Enable Math Trace (CH1 - CH2)
-            </label>
-          </div>
-        </div>
-
-        <!-- Tab 4: SCPI Console -->
-        <div class="dock-content" id="tabContent-scpi" style="display: none;">
-          <div class="scpi-container">
-            <div class="scpi-log" id="scpiLog"></div>
-            <div class="scpi-input-row">
-              <input type="text" class="scpi-input" id="scpiCmdInput" placeholder="Enter SCPI command (e.g. *IDN?, :MEAS:VOLT?, :TIM:SCAL 1e-3, :TRIG:STAT?)...">
-              <button class="btn btn-primary" id="btnSendScpi">SEND</button>
-            </div>
-          </div>
-        </div>
-
-      </div>
+      <button class="tb-btn stop-active" id="btnRunStop" title="Run / Stop Acquisition (Space)">
+        <svg viewBox="0 0 16 16"><polygon points="4,3 13,8 4,13"/></svg>
+        <span id="runStopLabel">RUN</span>
+      </button>
+      <button class="tb-btn" id="btnSingle" title="Single Trigger Sequence">SINGLE</button>
+      <button class="tb-btn" id="btnAutoset" title="Auto-Scale Waveform (:AUT)">AUTOSET</button>
+      <button class="tb-btn" id="btnForceTrig" title="Force Trigger Event (:TFOR)">FORCE</button>
+      <button class="tb-btn" id="btnClear" title="Clear Display Buffer">CLEAR</button>
     </div>
 
-    <!-- Right: Hardware Emulation Control Rack -->
-    <aside class="control-rack">
-      
-      <!-- Channel Selection & Switch -->
-      <div class="rack-section">
-        <div class="rack-header">
-          <span>VERTICAL SUBSYSTEM</span>
-          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">VOLTS / OFFSET</span>
+    <div class="toolbar-group">
+      <button class="tb-btn" id="btnSavePng" title="Save Oscilloscope Display as PNG">
+        <svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1"/><circle cx="6" cy="7" r="1.2"/><polyline points="3,12 7,8.5 10,11 12,9.5 14,12"/></svg>
+        PNG
+      </button>
+      <button class="tb-btn" id="btnSaveCsv" title="Export Waveform Samples to CSV">
+        <svg viewBox="0 0 16 16"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 13h10"/></svg>
+        CSV
+      </button>
+      <button class="tb-btn" id="btnSaveSetup" title="Save Instrument Setup JSON">SAVE</button>
+      <button class="tb-btn" id="btnLoadSetup" title="Recall Instrument Setup JSON">LOAD</button>
+      <div class="toolbar-sep"></div>
+      <button class="tb-btn" id="btnDefaultSetup" title="Factory Default Setup (*RST)">DEFAULT</button>
+      <button class="tb-btn" id="btnOpenDrivers" title="USB & COM Driver Reference">DRIVERS</button>
+    </div>
+  </nav>
+
+  <!-- 3. WORKSPACE -->
+  <main class="workspace">
+
+    <!-- LEFT / CENTER: DISPLAY + DOCK -->
+    <section class="scope-column">
+
+      <!-- Acquisition Status Header -->
+      <div class="acq-bar">
+        <div class="acq-left">
+          <span class="acq-badge" id="acqStateBadge">OFFLINE</span>
+          <span class="acq-item"><span class="k">H</span> <span class="v" id="hudTimebase">500 µs/div</span></span>
+          <span class="acq-item"><span class="k">POS</span> <span class="v" id="hudHPos">0.00 s</span></span>
+          <span class="acq-item"><span class="k">FMT</span> <span class="v" id="hudFormat">Y-T</span></span>
+          <span class="acq-item"><span class="k">SR</span> <span class="v" id="hudSampleRate">---</span></span>
+          <span class="acq-item"><span class="k">DEPTH</span> <span class="v" id="hudMemDepth">10 kpts</span></span>
+        </div>
+        <div class="acq-right">
+          <span class="acq-item"><span class="k">TRIG</span> <span class="v" id="hudTrigger">CH1 Rising 0.00 V [AUTO]</span></span>
+        </div>
+      </div>
+
+      <!-- High-DPI Graticule Canvas -->
+      <div class="graticule-stage" id="graticuleStage">
+        <canvas id="scopeCanvas"></canvas>
+        <div class="offline-banner" id="offlineBanner">
+          <span class="led"></span>
+          <span>NO HARDWARE CONNECTED — CONNECT TENMA 8737 VIA SERIAL COM OR DIRECT USB</span>
+        </div>
+      </div>
+
+      <!-- Channel Summary Strip -->
+      <div class="ch-strip" id="chStrip">
+        <div class="ch-tile enabled selected" data-ch="1">
+          <div class="ch-tile-left">
+            <span class="ch-tag">CH1</span>
+            <span class="ch-meta" id="stripCh1Scale">1.00 V/</span>
+          </div>
+          <span class="ch-sub" id="stripCh1Info">DC · 10X</span>
+        </div>
+        <div class="ch-tile enabled" data-ch="2">
+          <div class="ch-tile-left">
+            <span class="ch-tag">CH2</span>
+            <span class="ch-meta" id="stripCh2Scale">1.00 V/</span>
+          </div>
+          <span class="ch-sub" id="stripCh2Info">DC · 10X</span>
+        </div>
+        <div class="ch-tile" data-ch="3">
+          <div class="ch-tile-left">
+            <span class="ch-tag">CH3</span>
+            <span class="ch-meta" id="stripCh3Scale">OFF</span>
+          </div>
+          <span class="ch-sub" id="stripCh3Info">DC · 10X</span>
+        </div>
+        <div class="ch-tile" data-ch="4">
+          <div class="ch-tile-left">
+            <span class="ch-tag">CH4</span>
+            <span class="ch-meta" id="stripCh4Scale">OFF</span>
+          </div>
+          <span class="ch-sub" id="stripCh4Info">DC · 10X</span>
+        </div>
+        <div class="ch-tile" data-ch="M">
+          <div class="ch-tile-left">
+            <span class="ch-tag">MATH</span>
+            <span class="ch-meta" id="stripMathInfo">OFF</span>
+          </div>
+          <span class="ch-sub" id="stripMathOp">CH1 - CH2</span>
+        </div>
+      </div>
+
+      <!-- Bottom Analysis Dock -->
+      <div class="bottom-dock" id="bottomDock">
+        <div class="dock-header">
+          <div class="dock-tabs">
+            <button class="dock-tab active" data-pane="meas">Measurements</button>
+            <button class="dock-tab" data-pane="cursors">Cursors</button>
+            <button class="dock-tab" data-pane="math">Math / FFT</button>
+            <button class="dock-tab" data-pane="scpi">SCPI Console</button>
+          </div>
+          <button class="mini-btn" id="btnToggleDock" title="Collapse / Expand Dock">Hide</button>
         </div>
 
-        <div class="channel-selector-pills">
-          <div class="chan-pill active ch1" data-ch="1">CH 1</div>
-          <div class="chan-pill ch2" data-ch="2">CH 2</div>
-          <div class="chan-pill ch3" data-ch="3">CH 3</div>
-          <div class="chan-pill ch4" data-ch="4">CH 4</div>
-        </div>
+        <div class="dock-body">
 
-        <div class="control-row">
-          <span class="control-label" id="currentChLabel">Channel 1 Active</span>
-          <label class="switch">
-            <input type="checkbox" id="chkChannelEnable" checked>
-            <span class="slider-round"></span>
-          </label>
-        </div>
+          <!-- PANE 1: MEASUREMENTS -->
+          <div class="dock-pane active" id="pane-meas">
+            <div class="meas-toolbar">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="field-label">Source</span>
+                <div class="seg-group" id="measSourceGroup" style="width: 180px;">
+                  <button class="seg-btn active" data-val="1">CH1</button>
+                  <button class="seg-btn" data-val="2">CH2</button>
+                  <button class="seg-btn" data-val="3">CH3</button>
+                  <button class="seg-btn" data-val="4">CH4</button>
+                </div>
+              </div>
+              <button class="mini-btn" id="btnQueryMeas" title="Poll Measurements via SCPI">Query Hardware</button>
+            </div>
+            <div class="meas-grid" id="measGrid"></div>
+          </div>
 
-        <div class="control-group-grid" style="margin-top: 14px;">
-          <div class="control-item">
-            <span class="control-sublabel">VOLTS / DIV</span>
-            <div class="stepper-box">
-              <button class="stepper-btn" id="btnVoltDown">−</button>
-              <span class="stepper-val" id="valVoltDiv">1.00 V</span>
-              <button class="stepper-btn" id="btnVoltUp">+</button>
+          <!-- PANE 2: CURSORS -->
+          <div class="dock-pane" id="pane-cursors">
+            <div class="cursor-layout">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span class="field-label">Mode</span>
+                  <div class="seg-group" id="cursorModeGroup" style="width: 240px;">
+                    <button class="seg-btn active" data-val="off">Off</button>
+                    <button class="seg-btn" data-val="x">Time (X)</button>
+                    <button class="seg-btn" data-val="y">Volt (Y)</button>
+                    <button class="seg-btn" data-val="xy">Both (XY)</button>
+                  </div>
+                  <span class="field-label">Track Source</span>
+                  <select class="inst-select" id="selCursorSrc" style="width: 72px;">
+                    <option value="1">CH1</option>
+                    <option value="2">CH2</option>
+                    <option value="3">CH3</option>
+                    <option value="4">CH4</option>
+                  </select>
+                </div>
+                <button class="mini-btn" id="btnResetCursors">Reset Cursors</button>
+              </div>
+              <div class="cursor-grid">
+                <div class="cursor-box"><div class="k">X1</div><div class="v" id="curX1">---</div></div>
+                <div class="cursor-box"><div class="k">X2</div><div class="v" id="curX2">---</div></div>
+                <div class="cursor-box"><div class="k">Delta X</div><div class="v" id="curDX">---</div></div>
+                <div class="cursor-box"><div class="k">1 / Delta X</div><div class="v" id="curFreq">---</div></div>
+                <div class="cursor-box"><div class="k">Y1</div><div class="v" id="curY1">---</div></div>
+                <div class="cursor-box"><div class="k">Y2</div><div class="v" id="curY2">---</div></div>
+                <div class="cursor-box"><div class="k">Delta Y</div><div class="v" id="curDY">---</div></div>
+              </div>
+              <div style="font-size: 11px; color: var(--text-muted);">
+                Drag cursor lines directly on the graticule display to measure time intervals and voltage differentials.
+              </div>
             </div>
           </div>
 
-          <div class="control-item">
-            <span class="control-sublabel">COUPLING</span>
-            <select class="select-custom" id="selCoupling">
-              <option value="DC">DC</option>
-              <option value="AC">AC</option>
-              <option value="GND">GND</option>
-            </select>
+          <!-- PANE 3: MATH / FFT -->
+          <div class="dock-pane" id="pane-math">
+            <div class="fft-layout">
+              <div class="fft-controls">
+                <div class="ctrl-row">
+                  <span class="ctrl-label">Math Trace</span>
+                  <button class="toggle-btn" id="btnMathEnable">OFF</button>
+                </div>
+                <div class="ctrl-row">
+                  <span class="ctrl-label">Operation</span>
+                  <select class="inst-select" id="selMathOp" style="width: 120px;">
+                    <option value="sub">CH1 - CH2</option>
+                    <option value="add">CH1 + CH2</option>
+                    <option value="mul">CH1 * CH2</option>
+                  </select>
+                </div>
+                <div class="ctrl-row">
+                  <span class="ctrl-label">FFT Source</span>
+                  <select class="inst-select" id="selFftSrc" style="width: 120px;">
+                    <option value="1">CH1</option>
+                    <option value="2">CH2</option>
+                    <option value="3">CH3</option>
+                    <option value="4">CH4</option>
+                  </select>
+                </div>
+                <div class="ctrl-row">
+                  <span class="ctrl-label">Window</span>
+                  <select class="inst-select" id="selFftWindow" style="width: 120px;">
+                    <option value="hann">Hanning</option>
+                    <option value="hamming">Hamming</option>
+                    <option value="blackman">Blackman</option>
+                    <option value="rect">Rectangular</option>
+                  </select>
+                </div>
+                <div class="ctrl-row">
+                  <span class="ctrl-label">Scale</span>
+                  <select class="inst-select" id="selFftUnit" style="width: 120px;">
+                    <option value="dbv">dBV</option>
+                    <option value="vrms">Vrms</option>
+                  </select>
+                </div>
+              </div>
+              <div class="fft-stage">
+                <canvas id="fftCanvas"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- PANE 4: SCPI CONSOLE -->
+          <div class="dock-pane" id="pane-scpi">
+            <div class="scpi-wrap">
+              <div class="scpi-quick">
+                <span class="field-label" style="margin-right: 4px;">Quick</span>
+                <button class="scpi-chip" data-cmd="*IDN?">*IDN?</button>
+                <button class="scpi-chip" data-cmd=":WAV:DATA?">:WAV:DATA?</button>
+                <button class="scpi-chip" data-cmd=":TRIG:STAT?">:TRIG:STAT?</button>
+                <button class="scpi-chip" data-cmd=":MEAS:VPP? CHAN1">:MEAS:VPP? CH1</button>
+                <button class="scpi-chip" data-cmd=":MEAS:FREQ? CHAN1">:MEAS:FREQ? CH1</button>
+                <button class="scpi-chip" data-cmd=":AUT">:AUT</button>
+                <button class="scpi-chip" data-cmd="*RST">*RST</button>
+                <button class="mini-btn" id="btnClearScpi" style="margin-left: auto;">Clear Log</button>
+              </div>
+              <div class="scpi-log" id="scpiLog"></div>
+              <div class="scpi-input-bar">
+                <input type="text" class="inst-input" id="scpiInput" style="flex: 1;" placeholder="Enter SCPI command (e.g. *IDN?, :CHAN1:SCAL 0.5, :TIM:MAIN:SCAL 1e-3)">
+                <button class="tb-btn primary" id="btnScpiSend">Send</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: INSTRUMENT CONTROL INSPECTOR -->
+    <aside class="sidebar">
+
+      <!-- VERTICAL SUBSYSTEM -->
+      <div class="panel-section">
+        <div class="section-head">
+          <span class="section-title">Vertical</span>
+          <span class="section-sub" id="vertHeaderSub">CH1</span>
+        </div>
+
+        <div class="ch-tabs" id="vertChTabs">
+          <button class="ch-tab-btn active" data-ch="1">CH1</button>
+          <button class="ch-tab-btn" data-ch="2">CH2</button>
+          <button class="ch-tab-btn" data-ch="3">CH3</button>
+          <button class="ch-tab-btn" data-ch="4">CH4</button>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Channel State</span>
+          <div style="display: flex; gap: 5px;">
+            <button class="toggle-btn on" id="btnChEnable">ON</button>
+            <button class="toggle-btn" id="btnChInvert" title="Invert Waveform Polarity">INV</button>
           </div>
         </div>
 
-        <div class="control-item" style="margin-top: 10px;">
-          <div style="display: flex; justify-content: space-between;">
-            <span class="control-sublabel">VERTICAL POSITION / OFFSET</span>
-            <span class="control-sublabel" id="lblVertOffset" style="color: var(--text-primary);">0.00 div</span>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Scale</span>
+          <div class="stepper">
+            <button class="stepper-btn" id="btnVScaleDown">-</button>
+            <span class="stepper-val" id="valVScale">1.00 V/div</span>
+            <button class="stepper-btn" id="btnVScaleUp">+</button>
           </div>
-          <input type="range" class="slider-range" id="rngVertOffset" min="-4" max="4" step="0.1" value="0">
         </div>
 
-        <div class="control-group-grid" style="margin-top: 12px;">
-          <div class="control-item">
-            <span class="control-sublabel">PROBE ATTENUATION</span>
-            <select class="select-custom" id="selProbe">
-              <option value="1">1X</option>
-              <option value="10" selected>10X</option>
-              <option value="100">100X</option>
-              <option value="1000">1000X</option>
-            </select>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Offset</span>
+          <div class="slider-wrap">
+            <input type="range" class="inst-range" id="rngVOffset" min="-4" max="4" step="0.05" value="0">
+            <span class="readout-mono" id="valVOffset">0.00 div</span>
+            <button class="mini-btn" id="btnVOffsetZero">0</button>
           </div>
-          <div class="control-item">
-            <span class="control-sublabel">BW LIMIT</span>
-            <select class="select-custom" id="selBwLimit">
-              <option value="FULL">Full 200MHz</option>
-              <option value="20M">20 MHz</option>
-            </select>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Coupling</span>
+          <div class="seg-group" id="segCoupling" style="width: 176px;">
+            <button class="seg-btn active" data-val="DC">DC</button>
+            <button class="seg-btn" data-val="AC">AC</button>
+            <button class="seg-btn" data-val="GND">GND</button>
+          </div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Probe</span>
+          <div class="seg-group" id="segProbe" style="width: 176px;">
+            <button class="seg-btn" data-val="1">1X</button>
+            <button class="seg-btn active" data-val="10">10X</button>
+            <button class="seg-btn" data-val="100">100X</button>
+            <button class="seg-btn" data-val="1000">1kX</button>
+          </div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">BW Limit</span>
+          <div class="seg-group" id="segBwLimit" style="width: 176px;">
+            <button class="seg-btn active" data-val="OFF">Full</button>
+            <button class="seg-btn" data-val="ON">20 MHz</button>
           </div>
         </div>
       </div>
 
-      <!-- Horizontal System -->
-      <div class="rack-section">
-        <div class="rack-header">
-          <span>HORIZONTAL TIMEBASE</span>
-          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">TIME / DELAY</span>
+      <!-- HORIZONTAL SUBSYSTEM -->
+      <div class="panel-section">
+        <div class="section-head">
+          <span class="section-title">Horizontal</span>
+          <span class="section-sub" id="horizHeaderSub">10 div</span>
         </div>
 
-        <div class="control-item">
-          <span class="control-sublabel">TIME / DIV</span>
-          <div class="stepper-box">
-            <button class="stepper-btn" id="btnTimeDown">−</button>
-            <span class="stepper-val" id="valTimeDiv">500 μs</span>
-            <button class="stepper-btn" id="btnTimeUp">+</button>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Timebase</span>
+          <div class="stepper">
+            <button class="stepper-btn" id="btnHScaleDown">-</button>
+            <span class="stepper-val" id="valHScale">500 µs/div</span>
+            <button class="stepper-btn" id="btnHScaleUp">+</button>
           </div>
         </div>
 
-        <div class="control-item" style="margin-top: 12px;">
-          <div style="display: flex; justify-content: space-between;">
-            <span class="control-sublabel">HORIZONTAL POSITION (DELAY)</span>
-            <span class="control-sublabel" id="lblHorizPos" style="color: var(--text-primary);">0.00 s</span>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Position</span>
+          <div class="slider-wrap">
+            <input type="range" class="inst-range" id="rngHPos" min="-5" max="5" step="0.05" value="0">
+            <span class="readout-mono" id="valHPos">0.00 div</span>
+            <button class="mini-btn" id="btnHPosZero">0</button>
           </div>
-          <input type="range" class="slider-range" id="rngHorizPos" min="-5" max="5" step="0.1" value="0">
         </div>
 
-        <div class="control-item" style="margin-top: 12px;">
-          <span class="control-sublabel">ACQUISITION MODE</span>
-          <select class="select-custom" id="selAcqMode">
-            <option value="NORMAL">Normal Real-Time</option>
-            <option value="PEAK">Peak Detect</option>
-            <option value="AVERAGE">Averaging (16x)</option>
-            <option value="HIGHRES">High Resolution</option>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Format</span>
+          <div class="seg-group" id="segHFormat" style="width: 176px;">
+            <button class="seg-btn active" data-val="YT">Y-T</button>
+            <button class="seg-btn" data-val="XY">X-Y</button>
+            <button class="seg-btn" data-val="ROLL">Roll</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TRIGGER SUBSYSTEM -->
+      <div class="panel-section">
+        <div class="section-head">
+          <span class="section-title">Trigger</span>
+          <span class="section-sub" id="trigHeaderSub">EDGE</span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Type</span>
+          <select class="inst-select" id="selTrigType" style="width: 176px;">
+            <option value="EDGE">Edge</option>
+            <option value="PULS">Pulse Width</option>
+            <option value="VID">Video</option>
+            <option value="SLOP">Slope</option>
           </select>
         </div>
-      </div>
 
-      <!-- Trigger System -->
-      <div class="rack-section">
-        <div class="rack-header">
-          <span>TRIGGER SYSTEM</span>
-          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">EDGE / SYNC</span>
-        </div>
-
-        <div class="control-group-grid">
-          <div class="control-item">
-            <span class="control-sublabel">SOURCE</span>
-            <select class="select-custom" id="selTrigSource">
-              <option value="CH1">CH 1</option>
-              <option value="CH2">CH 2</option>
-              <option value="CH3">CH 3</option>
-              <option value="CH4">CH 4</option>
-              <option value="EXT">EXT Trig</option>
-            </select>
-          </div>
-
-          <div class="control-item">
-            <span class="control-sublabel">SWEEP MODE</span>
-            <select class="select-custom" id="selTrigMode">
-              <option value="AUTO">AUTO</option>
-              <option value="NORMAL">NORMAL</option>
-              <option value="SINGLE">SINGLE</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="control-group-grid" style="margin-top: 10px;">
-          <div class="control-item">
-            <span class="control-sublabel">SLOPE</span>
-            <select class="select-custom" id="selTrigSlope">
-              <option value="RISING">Rising ↗</option>
-              <option value="FALLING">Falling ↘</option>
-              <option value="EITHER">Either ↕</option>
-            </select>
-          </div>
-
-          <div class="control-item">
-            <span class="control-sublabel">COUPLING</span>
-            <select class="select-custom" id="selTrigCoupling">
-              <option value="DC">DC</option>
-              <option value="AC">AC</option>
-              <option value="HFREJ">HF Reject</option>
-              <option value="LFREJ">LF Reject</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="control-item" style="margin-top: 12px;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span class="control-sublabel">TRIGGER LEVEL</span>
-            <button class="btn" id="btnTrig50" style="padding: 2px 6px; font-size: 10px; height: 20px;">SET 50%</button>
-          </div>
-          <input type="range" class="slider-range" id="rngTrigLevel" min="-4" max="4" step="0.05" value="0.5">
-          <div style="text-align: right; font-family: var(--font-mono); font-size: 10.5px; color: var(--trig-color); margin-top: 4px;" id="lblTrigLevel">
-            +0.50 V
-          </div>
-        </div>
-      </div>
-
-      <!-- Presets & Signal Emulation -->
-      <div class="rack-section">
-        <div class="rack-header">
-          <span>LAB BENCH TOOLS</span>
-        </div>
-
-        <div class="control-item">
-          <span class="control-sublabel">SIMULATION TEST SIGNAL</span>
-          <select class="select-custom" id="selSimSignal">
-            <option value="drone_rpm">ShiroFPV Motor DSHOT & Telemetry</option>
-            <option value="gyro_noise">Flight Controller Gyro Noise & SPI</option>
-            <option value="sine">1 kHz Calibration Sine Wave</option>
-            <option value="square">1 kHz Probe Compensation Square Wave</option>
-            <option value="pwm">400 Hz Servo PWM Signal</option>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Source</span>
+          <select class="inst-select" id="selTrigSrc" style="width: 176px;">
+            <option value="CHAN1">CH1</option>
+            <option value="CHAN2">CH2</option>
+            <option value="CHAN3">CH3</option>
+            <option value="CHAN4">CH4</option>
+            <option value="EXT">EXT</option>
+            <option value="ACL">AC Line</option>
           </select>
         </div>
 
-        <div style="margin-top: 14px; display: flex; gap: 8px;">
-          <button class="btn btn-danger" id="btnResetScope" style="flex: 1;" title="Send *RST to scope">
-            RESET (*RST)
-          </button>
-          <button class="btn" id="btnForceTrig" style="flex: 1;" title="Force Trigger">
-            FORCE TRIG
-          </button>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Sweep</span>
+          <div class="seg-group" id="segTrigSweep" style="width: 176px;">
+            <button class="seg-btn active" data-val="AUTO">Auto</button>
+            <button class="seg-btn" data-val="NORM">Norm</button>
+            <button class="seg-btn" data-val="SING">Single</button>
+          </div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Slope</span>
+          <div class="seg-group" id="segTrigSlope" style="width: 176px;">
+            <button class="seg-btn active" data-val="POS">Rising</button>
+            <button class="seg-btn" data-val="NEG">Falling</button>
+            <button class="seg-btn" data-val="RFAL">Either</button>
+          </div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Coupling</span>
+          <select class="inst-select" id="selTrigCoup" style="width: 176px;">
+            <option value="DC">DC</option>
+            <option value="AC">AC</option>
+            <option value="HFR">HF Reject</option>
+            <option value="LFR">LF Reject</option>
+          </select>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Level</span>
+          <div class="slider-wrap">
+            <input type="range" class="inst-range" id="rngTrigLevel" min="-4" max="4" step="0.05" value="0">
+            <span class="readout-mono" id="valTrigLevel">0.00 V</span>
+            <button class="mini-btn" id="btnTrig50">50%</button>
+          </div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Holdoff</span>
+          <div class="stepper">
+            <button class="stepper-btn" id="btnHoldoffDown">-</button>
+            <span class="stepper-val" id="valHoldoff">100 ns</span>
+            <button class="stepper-btn" id="btnHoldoffUp">+</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACQUISITION & DISPLAY -->
+      <div class="panel-section">
+        <div class="section-head">
+          <span class="section-title">Acquire &amp; Display</span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Mode</span>
+          <div class="seg-group" id="segAcqMode" style="width: 176px;">
+            <button class="seg-btn active" data-val="NORM">Normal</button>
+            <button class="seg-btn" data-val="AVER">Avg</button>
+            <button class="seg-btn" data-val="PEAK">Peak</button>
+          </div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Mem Depth</span>
+          <select class="inst-select" id="selMemDepth" style="width: 176px;">
+            <option value="1000">1 kpts</option>
+            <option value="10000" selected>10 kpts</option>
+            <option value="100000">100 kpts</option>
+            <option value="1000000">1 Mpts</option>
+            <option value="10000000">10 Mpts</option>
+          </select>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Trace Type</span>
+          <div class="seg-group" id="segTraceType" style="width: 176px;">
+            <button class="seg-btn active" data-val="vectors">Vectors</button>
+            <button class="seg-btn" data-val="dots">Dots</button>
+          </div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label">Grid</span>
+          <div class="slider-wrap">
+            <input type="range" class="inst-range" id="rngGridAlpha" min="0.1" max="1" step="0.05" value="0.55" style="width: 132px;">
+            <span class="readout-mono" id="valGridAlpha" style="min-width: 34px;">55%</span>
+          </div>
         </div>
       </div>
 
     </aside>
   </main>
 
-  <!-- Connection Setup Modal -->
-  <div class="modal-overlay" id="connModal">
-    <div class="modal-card" style="width: 560px;">
-      <div class="modal-title">
-        <span>CONNECT TENMA 8737 SCOPE</span>
-        <button class="btn btn-icon" id="btnCloseModal" style="border: none; background: transparent;">✕</button>
-      </div>
-      
-      <p class="modal-desc">
-        Connect your Tenma oscilloscope to your Windows 11 PC via the <strong>USB-B</strong> cable. Select your interface below:
-      </p>
+  <!-- 4. BOTTOM HARDWARE STATUS BAR -->
+  <footer class="statusbar">
+    <div class="status-left">
+      <span id="statusConnText">Interface: Disconnected</span>
+      <span class="txrx-indicator"><span class="txrx-dot" id="ledTx"></span>TX</span>
+      <span class="txrx-indicator"><span class="txrx-dot" id="ledRx"></span>RX</span>
+      <span id="statusLastCmd" style="color: var(--text-dim);">Idle</span>
+    </div>
+    <div class="status-right">
+      <span>TENMA 8737 / 72-87XX</span>
+      <span>SHIROFPV</span>
+    </div>
+  </footer>
 
-      <div class="conn-option-list">
-        
-        <!-- 1. USB Virtual COM Port (Serial) - RECOMMENDED -->
-        <div class="conn-option selected" id="optWebSerial" style="flex-direction: column; align-items: stretch; gap: 10px;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-            <div>
-              <div class="conn-name" style="display: flex; align-items: center; gap: 6px;">
-                <span>USB Virtual COM Port (Serial)</span>
-                <span style="font-size: 10px; background: rgba(16, 185, 129, 0.2); color: var(--success); padding: 1px 6px; border-radius: 4px; font-weight: 600;">RECOMMENDED</span>
-              </div>
-              <div class="conn-detail">Communicates over the oscilloscope's serial interface.</div>
-            </div>
-          </div>
-
-          <!-- Direct COM Port Dropdown & Baud Selector -->
-          <div style="display: flex; gap: 8px; align-items: center; background: var(--bg-deep); padding: 10px; border-radius: 6px; border: 1px solid var(--border-subtle);">
-            <div style="flex: 1;">
-              <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 3px;">DETECTED COM PORT</div>
-              <select class="select-custom" id="selComPort">
-                <option value="">Scanning COM ports...</option>
-              </select>
-            </div>
-            <button class="btn" id="btnRefreshPorts" title="Refresh available COM ports" style="margin-top: 14px; height: 30px; padding: 0 10px;">
-              ↻ Refresh
-            </button>
-            <div style="width: 90px;">
-              <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 3px;">BAUD RATE</div>
-              <select class="select-custom" id="selBaudRate">
-                <option value="115200" selected>115200</option>
-                <option value="9600">9600</option>
-                <option value="38400">38400</option>
-                <option value="57600">57600</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Manual Port Input Option -->
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="text" class="scpi-input" id="txtManualPort" placeholder="Or enter COM port manually (e.g. COM3)" style="font-size: 11px; padding: 5px 10px; height: 30px;">
-            <button class="btn btn-primary" id="btnConnectSerialDirect" style="height: 30px; white-space: nowrap;">CONNECT COM</button>
-          </div>
-
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
-            <a href="#" id="linkOpenDriverGuide" style="color: var(--ch2-color); font-size: 11px; text-decoration: none;">Troubleshoot / Open Driver Guide →</a>
-          </div>
-        </div>
-
-        <!-- 2. Direct USB (USBTMC / Bulk Transfer) -->
-        <div class="conn-option" id="optWebUSB">
-          <div>
-            <div class="conn-name">Direct USB (USBTMC / WinUSB)</div>
-            <div class="conn-detail">For scopes registered as USB Test & Measurement Class (USBTMC) or WinUSB.</div>
-          </div>
-          <button class="btn" id="btnConnectWebUSB">PAIR USB</button>
-        </div>
-
-        <!-- 3. Hardware Simulator -->
-        <div class="conn-option" id="optSim">
-          <div>
-            <div class="conn-name">Built-in Hardware Simulator</div>
-            <div class="conn-detail">Test all scope knobs, waveforms, DSHOT telemetry & FFT without physical hardware.</div>
-          </div>
-          <button class="btn" id="btnEnableSim">ACTIVATE</button>
-        </div>
-
+  <!-- ============================================================
+       MODAL: INSTRUMENT CONNECTION
+       ============================================================ -->
+  <div class="modal-backdrop" id="connModal">
+    <div class="modal-dialog">
+      <div class="modal-head">
+        <span class="modal-title">Instrument Interface</span>
+        <button class="modal-close" id="btnCloseConn">
+          <svg width="10" height="10" viewBox="0 0 10 10"><line x1="1.5" y1="1.5" x2="8.5" y2="8.5" stroke="currentColor" stroke-width="1.2"/><line x1="8.5" y1="1.5" x2="1.5" y2="8.5" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
       </div>
 
-      <!-- Live Windows Hardware Diagnostic Box -->
-      <div style="background: var(--bg-deep); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px; font-family: var(--font-mono); font-size: 11px; max-height: 120px; overflow-y: auto;">
-        <div style="display: flex; justify-content: space-between; color: var(--text-muted); font-size: 10px; margin-bottom: 4px;">
-          <span>ALL DETECTED WINDOWS HARDWARE DEVICES:</span>
-          <span id="lblDeviceCount">Scanning...</span>
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-ctab="serial">Serial / Virtual COM</button>
+        <button class="modal-tab" data-ctab="usb">Direct USB (USBTMC / WinUSB)</button>
+      </div>
+
+      <!-- Serial Tab -->
+      <div class="modal-body" id="ctab-serial">
+        <div class="field-col">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label class="field-label" for="selComPort">Detected COM Ports</label>
+            <button class="mini-btn" id="btnRefreshPorts">Refresh Ports</button>
+          </div>
+          <select class="inst-select" id="selComPort" style="height: 29px; width: 100%;"></select>
         </div>
-        <div id="hardwareDeviceList" style="color: var(--text-secondary); display: flex; flex-direction: column; gap: 2px;">
-          Scanning system devices...
+
+        <div class="field-grid">
+          <div class="field-col">
+            <label class="field-label" for="txtManualPort">Manual Port Override</label>
+            <input type="text" class="inst-input" id="txtManualPort" placeholder="e.g. COM3" style="height: 28px;">
+          </div>
+          <div class="field-col">
+            <label class="field-label" for="selBaudRate">Baud Rate</label>
+            <select class="inst-select" id="selBaudRate" style="height: 28px;">
+              <option value="9600">9600 bps</option>
+              <option value="19200">19200 bps</option>
+              <option value="38400">38400 bps</option>
+              <option value="57600">57600 bps</option>
+              <option value="115200" selected>115200 bps (Default)</option>
+              <option value="230400">230400 bps</option>
+              <option value="921600">921600 bps</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field-grid">
+          <div class="field-col">
+            <label class="field-label" for="selPollRate">Waveform Poll Interval</label>
+            <select class="inst-select" id="selPollRate" style="height: 28px;">
+              <option value="100">100 ms (10 Hz)</option>
+              <option value="250" selected>250 ms (4 Hz)</option>
+              <option value="500">500 ms (2 Hz)</option>
+              <option value="0">Manual / SCPI Only</option>
+            </select>
+          </div>
+          <div class="field-col">
+            <label class="field-label">Framing</label>
+            <input type="text" class="inst-input" value="8-N-1 (CR/LF)" disabled style="height: 28px; opacity: 0.65;">
+          </div>
+        </div>
+
+        <div class="field-col">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span class="field-label">Windows PnP Hardware Scan</span>
+            <span class="field-label" id="lblHwCount">0 devices</span>
+          </div>
+          <div class="device-scroll">
+            <table class="tech-table">
+              <thead>
+                <tr>
+                  <th>Device</th>
+                  <th>Class</th>
+                  <th>Hardware ID</th>
+                </tr>
+              </thead>
+              <tbody id="hwTableBody">
+                <tr><td colspan="3">Scanning...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="connErrorMsg" style="font-family: var(--font-mono); font-size: 11px; color: var(--state-stop); display: none;"></div>
+      </div>
+
+      <!-- Direct USB Tab -->
+      <div class="modal-body" id="ctab-usb" style="display: none;">
+        <div class="tech-note">
+          <strong>Direct USB (USBTMC / WinUSB):</strong> Use this interface only if your oscilloscope enumerates under <em>Universal Serial Bus devices</em> or <em>USB Test and Measurement Devices</em> with a WinUSB or libusb driver instead of a Virtual COM port.
+        </div>
+
+        <table class="tech-table">
+          <thead>
+            <tr>
+              <th>Vendor</th>
+              <th>VID</th>
+              <th>Protocol</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Tenma / Uni-Trend</td><td>0x5656</td><td>USBTMC / Bulk</td></tr>
+            <tr><td>WCH CH372 / CH375</td><td>0x4348</td><td>Vendor Bulk</td></tr>
+            <tr><td>STMicroelectronics</td><td>0x0483</td><td>CDC / Bulk</td></tr>
+            <tr><td>WCH CH340 / CH341</td><td>0x1A86</td><td>USB Serial</td></tr>
+            <tr><td>Silicon Labs CP210x</td><td>0x10C4</td><td>USB Serial</td></tr>
+          </tbody>
+        </table>
+
+        <div style="display: flex; gap: 8px;">
+          <button class="tb-btn primary" id="btnConnectWebUsb" style="height: 30px;">Pair Direct USB Device</button>
+          <button class="tb-btn" id="btnOpenDevMgrFromConn" style="height: 30px;">Open Device Manager</button>
         </div>
       </div>
 
+      <div class="modal-foot">
+        <button class="tb-btn" id="btnConnToDrivers">Driver Reference</button>
+        <div style="display: flex; gap: 6px;">
+          <button class="tb-btn" id="btnModalDisconnect" style="display: none;">Disconnect</button>
+          <button class="tb-btn primary" id="btnConnectSerial">Connect COM Port</button>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- In-App Interactive Driver & Hardware Setup Guide Modal -->
-  <div class="modal-overlay" id="driverGuideModal">
-    <div class="modal-card" style="width: 620px; max-height: 85vh; overflow-y: auto;">
-      <div class="modal-title">
-        <span>HARDWARE DRIVER & CONNECTION GUIDE</span>
-        <button class="btn btn-icon" id="btnCloseDriverModal" style="border: none; background: transparent;">✕</button>
+  <!-- ============================================================
+       MODAL: DRIVER REFERENCE
+       ============================================================ -->
+  <div class="modal-backdrop" id="driverModal">
+    <div class="modal-dialog" style="width: 600px;">
+      <div class="modal-head">
+        <span class="modal-title">Windows 11 USB &amp; COM Driver Reference</span>
+        <button class="modal-close" id="btnCloseDriver">
+          <svg width="10" height="10" viewBox="0 0 10 10"><line x1="1.5" y1="1.5" x2="8.5" y2="8.5" stroke="currentColor" stroke-width="1.2"/><line x1="8.5" y1="1.5" x2="1.5" y2="8.5" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
       </div>
 
-      <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; display: flex; flex-direction: column; gap: 14px;">
-        
-        <!-- Step 1 -->
-        <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-subtle);">
-          <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-            <span>1. Check Windows Device Manager</span>
-            <button class="btn btn-primary" id="btnLaunchDevMgr" style="font-size: 11px; padding: 3px 8px; height: 24px;">
-              Open Device Manager
-            </button>
-          </div>
-          <p>Plug the <strong>USB-B</strong> cable into the oscilloscope's rear port and into your PC. Turn the scope on, then look for it in Windows Device Manager:</p>
-          <ul style="margin: 6px 0 0 18px; color: var(--text-muted); font-size: 12px;">
-            <li><strong style="color: var(--text-primary);">Under Ports (COM & LPT):</strong> If you see <code>USB Serial Device (COM3)</code> or <code>CH340 (COMx)</code>, the driver is already working! Note the COM number and select it in the connection box.</li>
-            <li><strong style="color: var(--text-primary);">Under Universal Serial Bus Devices:</strong> If you see <code>USB Test and Measurement Device</code> or <code>Uni-Trend DSO</code>, the scope is in Direct USB (USBTMC) mode.</li>
-            <li><strong style="color: var(--danger);">Under Other Devices (⚠️ Yellow mark):</strong> If it shows an exclamation mark, Windows needs a driver. See step 2 below.</li>
-          </ul>
+      <div class="modal-body">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="field-label">1. Restoring a WinUSB Device Back to a COM Port</span>
+          <button class="tb-btn primary" id="btnLaunchDevMgr">Open Device Manager</button>
         </div>
 
-        <!-- Step 2 -->
-        <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-subtle);">
-          <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">2. Direct USB vs. Virtual COM Explained</div>
-          <p>Oscilloscopes communicate in one of two modes over their USB-B port:</p>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;">
-            <div style="background: var(--bg-deep); padding: 10px; border-radius: 6px;">
-              <strong style="color: var(--success); font-size: 12px;">Virtual COM (Serial)</strong>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                The scope acts like a serial cable over USB. Fast, easy, and supported out-of-the-box by Windows 11. Choose your COM port from the dropdown.
-              </div>
-            </div>
-            <div style="background: var(--bg-deep); padding: 10px; border-radius: 6px;">
-              <strong style="color: var(--ch2-color); font-size: 12px;">Direct USB (USBTMC)</strong>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                Raw USB Test and Measurement Class packet interface. Used if your scope doesn't expose a COM port. Requires WinUSB or VISA driver.
-              </div>
-            </div>
-          </div>
+        <div class="tech-note">
+          <strong>Why WinUSB hides COM ports:</strong> <code>WinUSB.sys</code> is a raw USB bulk-transfer driver and does not create a serial COM interface. If WinUSB was installed (for example via Zadig), Windows moves the oscilloscope out of <strong>Ports (COM &amp; LPT)</strong> and into <strong>Universal Serial Bus devices</strong>.<br><br>
+          <strong>To restore Virtual COM:</strong><br>
+          1. Open Device Manager and expand <strong>Universal Serial Bus devices</strong>.<br>
+          2. Right-click the device &rarr; <strong>Update driver</strong> &rarr; <strong>Browse my computer for drivers</strong>.<br>
+          3. Select <strong>Let me pick from a list of available drivers on my computer</strong>.<br>
+          4. Choose <strong>USB Serial Device</strong> (<code>usbser.sys</code>) and click Next.<br>
+          5. If not listed, right-click &rarr; <strong>Uninstall device</strong>, check <strong>Attempt to remove the driver for this device</strong>, then reconnect the USB-B cable.
         </div>
 
-        <!-- Step 3 -->
-        <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-subtle);">
-          <div style="font-weight: 600; color: var(--accent); margin-bottom: 6px;">3. WinUSB Turned It Into a USB Device (Not COM)? Here is the Fix:</div>
-          <p style="font-size: 12px; margin-bottom: 6px;">
-            <strong>WinUSB is a raw USB driver, not a serial driver.</strong> When WinUSB is applied, Windows moves the scope out of <em>Ports (COM & LPT)</em> and into <em>Universal Serial Bus devices</em>, preventing it from having a COM number.
-          </p>
-          <div style="font-weight: 600; color: var(--text-primary); font-size: 12px; margin-bottom: 4px;">⚡ 30-Second Fix to restore it back to a COM port:</div>
-          <ol style="margin: 0 0 6px 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5;">
-            <li>Click <strong>Open Device Manager</strong> button above.</li>
-            <li>Expand <strong>Universal Serial Bus devices</strong> and find your device (e.g. <em>USB Serial Device</em> or <em>WinUSB Device</em>).</li>
-            <li>Right-click it → choose <strong>Update driver</strong> → <strong>Browse my computer for drivers</strong>.</li>
-            <li>Click <strong>"Let me pick from a list of available drivers on my computer"</strong>.</li>
-            <li>Select <strong style="color: var(--success);">"USB Serial Device"</strong> (standard Windows 11 driver) and click <strong>Next</strong>.</li>
-            <li>The scope will instantly reappear under <strong>Ports (COM & LPT)</strong> with a COM number (e.g. <code>COM3</code>)!</li>
-          </ol>
-          <div style="font-size: 11.5px; color: var(--text-muted); border-top: 1px solid var(--border-subtle); padding-top: 6px;">
-            <em>Alternative:</em> Right-click the device → <strong>Uninstall device</strong> → ⚠️ <strong>Check "Attempt to remove the driver for this device"</strong> → Click Uninstall → Re-plug the USB cable. Windows 11 will automatically restore its native serial COM driver.
-          </div>
-        </div>
+        <span class="field-label">2. Driver Mapping by Hardware ID</span>
+        <table class="tech-table">
+          <thead>
+            <tr>
+              <th>Hardware ID</th>
+              <th>Chipset</th>
+              <th>Required Windows Driver</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>VID_0483 &amp; PID_5740</td><td>STM32 CDC-ACM</td><td>Built-in Microsoft usbser.sys / STSW-STM32102</td></tr>
+            <tr><td>VID_1A86 &amp; PID_7523</td><td>WCH CH340 / CH341</td><td>WCH CH341SER.EXE</td></tr>
+            <tr><td>VID_10C4 &amp; PID_EA60</td><td>Silicon Labs CP210x</td><td>Silicon Labs CP210x Universal VCP</td></tr>
+            <tr><td>VID_0403 &amp; PID_6001</td><td>FTDI FT232R</td><td>FTDI VCP Driver</td></tr>
+            <tr><td>VID_4348 &amp; PID_5537</td><td>WCH CH372 / Uni-T</td><td>Uni-Trend USBDRV / Direct USB</td></tr>
+          </tbody>
+        </table>
+      </div>
 
-        <!-- Step 4 -->
-        <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-subtle);">
-          <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">4. Drivers Reference for Tenma / Uni-T Oscilloscopes</div>
-          <div style="font-size: 11.5px; color: var(--text-muted); display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-            <div>• <strong>Native Windows 11:</strong> <code>usbser.sys</code> (Built-in)</div>
-            <div>• <strong>STM32 VCP:</strong> STMicroelectronics Virtual COM Port</div>
-            <div>• <strong>WCH USB:</strong> CH340 / CH341SER Driver</div>
-            <div>• <strong>Silicon Labs:</strong> CP210x Universal VCP Driver</div>
-          </div>
-        </div>
-
-        <div style="text-align: right; margin-top: 4px;">
-          <button class="btn btn-primary" id="btnOkDriverGuide">Got it, Back to App</button>
-        </div>
-
+      <div class="modal-foot">
+        <span style="font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);">Check Device Properties &rarr; Details &rarr; Hardware Ids</span>
+        <button class="tb-btn primary" id="btnCloseDriverOk">Close</button>
       </div>
     </div>
   </div>

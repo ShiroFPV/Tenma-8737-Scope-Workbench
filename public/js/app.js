@@ -1,677 +1,790 @@
-/**
- * ShiroFPV // Tenma 8737 & 72-87XX DSO Workbench
- * Native Windows 11 Desktop Software
- */
-
-(function () {
+(() => {
   'use strict';
 
-  // --- Oscilloscope Hardware Scales ---
-  const TIMEBASE_SCALES = [
-    { label: '2 ns', val: 2e-9 },
-    { label: '5 ns', val: 5e-9 },
-    { label: '10 ns', val: 10e-9 },
-    { label: '20 ns', val: 20e-9 },
-    { label: '50 ns', val: 50e-9 },
-    { label: '100 ns', val: 100e-9 },
-    { label: '200 ns', val: 200e-9 },
-    { label: '500 ns', val: 500e-9 },
-    { label: '1 μs', val: 1e-6 },
-    { label: '2 μs', val: 2e-6 },
-    { label: '5 μs', val: 5e-6 },
-    { label: '10 μs', val: 10e-6 },
-    { label: '20 μs', val: 20e-6 },
-    { label: '50 μs', val: 50e-6 },
-    { label: '100 μs', val: 100e-6 },
-    { label: '200 μs', val: 200e-6 },
-    { label: '500 μs', val: 500e-6 },
-    { label: '1 ms', val: 1e-3 },
-    { label: '2 ms', val: 2e-3 },
-    { label: '5 ms', val: 5e-3 },
-    { label: '10 ms', val: 10e-3 },
-    { label: '20 ms', val: 20e-3 },
-    { label: '50 ms', val: 50e-3 },
-    { label: '100 ms', val: 100e-3 },
-    { label: '200 ms', val: 200e-3 },
-    { label: '500 ms', val: 500e-3 },
-    { label: '1 s', val: 1.0 },
-    { label: '2 s', val: 2.0 },
-    { label: '5 s', val: 5.0 }
+  // Standard 1-2-5 oscilloscope step tables
+  const VOLT_STEPS = [
+    0.001, 0.002, 0.005,
+    0.01, 0.02, 0.05,
+    0.1, 0.2, 0.5,
+    1, 2, 5, 10
   ];
 
-  const VOLT_SCALES = [
-    { label: '2 mV', val: 0.002 },
-    { label: '5 mV', val: 0.005 },
-    { label: '10 mV', val: 0.01 },
-    { label: '20 mV', val: 0.02 },
-    { label: '50 mV', val: 0.05 },
-    { label: '100 mV', val: 0.1 },
-    { label: '200 mV', val: 0.2 },
-    { label: '500 mV', val: 0.5 },
-    { label: '1.00 V', val: 1.0 },
-    { label: '2.00 V', val: 2.0 },
-    { label: '5.00 V', val: 5.0 },
-    { label: '10.0 V', val: 10.0 }
+  const TIME_STEPS = [
+    2e-9, 5e-9,
+    1e-8, 2e-8, 5e-8,
+    1e-7, 2e-7, 5e-7,
+    1e-6, 2e-6, 5e-6,
+    1e-5, 2e-5, 5e-5,
+    1e-4, 2e-4, 5e-4,
+    1e-3, 2e-3, 5e-3,
+    1e-2, 2e-2, 5e-2,
+    0.1, 0.2, 0.5,
+    1, 2, 5, 10, 20, 50
   ];
 
-  // --- Oscilloscope State ---
+  const HOLDOFF_STEPS = [
+    1e-7, 2e-7, 5e-7,
+    1e-6, 2e-6, 5e-6,
+    1e-5, 2e-5, 5e-5,
+    1e-4, 2e-4, 5e-4,
+    1e-3, 5e-3, 1e-2, 0.1, 1
+  ];
+
+  const CH_COLORS = {
+    1: '#f2c94c',
+    2: '#2d9cdb',
+    3: '#d95fd9',
+    4: '#34c77b',
+    M: '#a78bfa'
+  };
+
+  // Instrument state (real hardware only — no simulation)
   const state = {
     connected: false,
-    connType: 'sim', // 'sim', 'serial', 'webusb'
-    activePort: null,
-    running: true,
-    singleArm: false,
+    connType: null, // 'serial' | 'usb' | null
+    portLabel: '',
+    idn: '',
+    running: false,
+    singleArmed: false,
     activeChannel: 1,
-    timebaseIdx: 16, // 500 μs
-    horizPos: 0.0,
-    sampleRate: 2.0e9,
-    acqMode: 'NORMAL',
-    simSignal: 'drone_rpm',
+    measSource: 1,
 
     channels: {
-      1: { enabled: true, voltIdx: 8, offset: 0.0, coupling: 'DC', probe: 10, bwLimit: 'FULL', color: '#ffd000' },
-      2: { enabled: true, voltIdx: 9, offset: -1.5, coupling: 'DC', probe: 10, bwLimit: 'FULL', color: '#00d2ff' },
-      3: { enabled: false, voltIdx: 8, offset: 0.0, coupling: 'DC', probe: 10, bwLimit: 'FULL', color: '#ff3377' },
-      4: { enabled: false, voltIdx: 8, offset: 0.0, coupling: 'DC', probe: 10, bwLimit: 'FULL', color: '#00ff88' }
+      1: { enabled: true,  invert: false, vIdx: 9, offset: 0, coupling: 'DC', probe: 10, bwLimit: 'OFF' },
+      2: { enabled: true,  invert: false, vIdx: 9, offset: 0, coupling: 'DC', probe: 10, bwLimit: 'OFF' },
+      3: { enabled: false, invert: false, vIdx: 9, offset: 0, coupling: 'DC', probe: 10, bwLimit: 'OFF' },
+      4: { enabled: false, invert: false, vIdx: 9, offset: 0, coupling: 'DC', probe: 10, bwLimit: 'OFF' }
+    },
+
+    horiz: {
+      tIdx: 16, // 500 us/div
+      posDiv: 0,
+      format: 'YT'
     },
 
     trigger: {
-      source: 'CH1',
-      mode: 'AUTO',
-      slope: 'RISING',
+      type: 'EDGE',
+      source: 'CHAN1',
+      sweep: 'AUTO',
+      slope: 'POS',
       coupling: 'DC',
-      level: 0.5,
-      status: 'TRIG\'D'
+      level: 0.0,
+      holdoffIdx: 0,
+      status: 'OFFLINE' // OFFLINE | STOP | WAIT | RUN | TRIG'D
+    },
+
+    acq: {
+      mode: 'NORM',
+      memDepth: 10000,
+      sampleRate: null,
+      traceType: 'vectors',
+      gridAlpha: 0.55,
+      pollIntervalMs: 250
     },
 
     cursors: {
-      enabled: false,
-      x1: -0.2,
-      x2: 0.2,
-      y1: 1.0,
-      y2: -1.0
+      mode: 'off', // off | x | y | xy
+      source: 1,
+      x1: 0.25, // normalized 0..1 across graticule width
+      x2: 0.75,
+      y1: 0.25, // normalized 0..1 across graticule height
+      y2: 0.75
     },
 
     math: {
       enabled: false,
-      op: 'CH1 - CH2'
+      op: 'sub',
+      fftSrc: 1,
+      fftWindow: 'hann',
+      fftUnit: 'dbv'
     },
 
-    fft: {
-      source: 1,
-      window: 'hanning'
-    },
-
-    waveforms: {
-      ch1: new Float32Array(1000),
-      ch2: new Float32Array(1000),
-      ch3: new Float32Array(1000),
-      ch4: new Float32Array(1000),
-      math: new Float32Array(1000)
-    },
-
-    measurements: {}
+    // Real acquired waveform sample arrays (Float32Array of Volts, null when no data)
+    waveforms: { 1: null, 2: null, 3: null, 4: null }
   };
 
   let usbDevice = null;
+  let pollTimer = null;
+  let pollChannelCursor = 1;
+  let pendingWaveChannel = null;
+  let scpiHistory = [];
+  let scpiHistoryIdx = -1;
+
+  // Interactive canvas drag state
+  let dragTarget = null; // { type: 'ch'|'trig'|'hpos'|'x1'|'x2'|'y1'|'y2', ch?: number }
+  let graticuleRect = { x: 28, y: 18, w: 600, h: 400 };
 
   const scopeCanvas = document.getElementById('scopeCanvas');
   const scopeCtx = scopeCanvas.getContext('2d');
   const fftCanvas = document.getElementById('fftCanvas');
-  const fftCtx = fftCanvas ? fftCanvas.getContext('2d') : null;
+  const fftCtx = fftCanvas.getContext('2d');
 
-  let animFrameId = null;
-  let simTime = 0.0;
+  // ============================================================
+  // FORMATTING UTILITIES
+  // ============================================================
+  function formatEng(val, unit, decimals = 2) {
+    if (val === null || val === undefined || !isFinite(val)) return '---';
+    const abs = Math.abs(val);
+    if (abs === 0) return `0.00 ${unit}`;
+    if (abs >= 1e9) return `${(val / 1e9).toFixed(decimals)} G${unit}`;
+    if (abs >= 1e6) return `${(val / 1e6).toFixed(decimals)} M${unit}`;
+    if (abs >= 1e3) return `${(val / 1e3).toFixed(decimals)} k${unit}`;
+    if (abs >= 1)   return `${val.toFixed(decimals)} ${unit}`;
+    if (abs >= 1e-3) return `${(val * 1e3).toFixed(decimals)} m${unit}`;
+    if (abs >= 1e-6) return `${(val * 1e6).toFixed(decimals)} µ${unit}`;
+    if (abs >= 1e-9) return `${(val * 1e9).toFixed(decimals)} n${unit}`;
+    return `${(val * 1e12).toFixed(decimals)} p${unit}`;
+  }
 
-  // --- Initializer ---
+  function formatVoltsDiv(v) {
+    return v < 1 ? `${Math.round(v * 1000)} mV/div` : `${v < 10 ? v.toFixed(2) : v.toFixed(1)} V/div`;
+  }
+
+  function formatVoltsShort(v) {
+    return v < 1 ? `${Math.round(v * 1000)}mV/` : `${v < 10 ? v.toFixed(2) : v.toFixed(1)}V/`;
+  }
+
+  function formatTimeDiv(t) {
+    if (t >= 1) return `${t} s/div`;
+    if (t >= 1e-3) return `${+(t * 1e3).toFixed(2)} ms/div`;
+    if (t >= 1e-6) return `${+(t * 1e6).toFixed(2)} µs/div`;
+    return `${+(t * 1e9).toFixed(2)} ns/div`;
+  }
+
+  function formatHoldoff(t) {
+    if (t >= 1) return `${t} s`;
+    if (t >= 1e-3) return `${+(t * 1e3).toFixed(1)} ms`;
+    if (t >= 1e-6) return `${+(t * 1e6).toFixed(1)} µs`;
+    return `${+(t * 1e9).toFixed(0)} ns`;
+  }
+
+  function currentVScale(chNum) {
+    const ch = state.channels[chNum];
+    return VOLT_STEPS[ch.vIdx] * (ch.probe / 10);
+  }
+
+  function currentTScale() {
+    return TIME_STEPS[state.horiz.tIdx];
+  }
+
+  // ============================================================
+  // INITIALIZATION
+  // ============================================================
   function init() {
-    setupWindowControls();
-    setupCanvasResize();
-    bindUIEvents();
-    renderMeasurementsGrid();
-    renderChannelControls();
-    logScpi('SYS', 'Tenma 8737 Scope Workbench initialized.');
-    logScpi('SYS', 'ShiroFPV Hardware Interface v1.0.0 (Windows 11). Ready.');
+    bindWindowControls();
+    bindToolbar();
+    bindSidebarControls();
+    bindDockControls();
+    bindModals();
+    bindCanvasInteractions();
+    bindSerialListeners();
 
-    startLoop();
+    resizeCanvases();
+    window.addEventListener('resize', resizeCanvases);
 
-    // Populate COM ports and USB diagnostics
-    refreshComPortDropdown();
-    refreshHardwareDiagnostics();
-
-    // Setup serial listener
-    if (window.electronAPI && window.electronAPI.onSerialData) {
-      window.electronAPI.onSerialData((data) => {
-        logScpi('RX', data);
-      });
-      window.electronAPI.onSerialDisconnected(() => {
-        logScpi('SYS', 'Serial connection closed by remote device.');
-        setConnectionMode('sim');
-      });
-    }
+    syncAllUI();
+    renderMeasurements();
+    drawScope();
+    drawFFT();
+    logScpi('SYS', 'Tenma 8737 Instrument Control initialized. Connect hardware via COM port or Direct USB.');
   }
 
-  // --- Window Titlebar Controls ---
-  function setupWindowControls() {
-    const minBtn = document.getElementById('winMinBtn');
-    const maxBtn = document.getElementById('winMaxBtn');
-    const closeBtn = document.getElementById('winCloseBtn');
-
-    if (window.electronAPI) {
-      minBtn.addEventListener('click', () => window.electronAPI.minimize());
-      maxBtn.addEventListener('click', () => window.electronAPI.maximize());
-      closeBtn.addEventListener('click', () => window.electronAPI.close());
-    } else {
-      minBtn.style.display = 'none';
-      maxBtn.style.display = 'none';
-      closeBtn.style.display = 'none';
+  function resizeCanvases() {
+    const dpr = window.devicePixelRatio || 1;
+    const stage = document.getElementById('graticuleStage');
+    if (stage) {
+      const r = stage.getBoundingClientRect();
+      scopeCanvas.width = Math.max(100, Math.floor(r.width * dpr));
+      scopeCanvas.height = Math.max(100, Math.floor(r.height * dpr));
+      scopeCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
-  }
-
-  // --- Canvas High-DPI Resizing ---
-  function setupCanvasResize() {
-    function resize() {
-      const wrapper = document.getElementById('canvasWrapper');
-      const dpr = window.devicePixelRatio || 1;
-      const w = wrapper.clientWidth;
-      const h = wrapper.clientHeight;
-
-      scopeCanvas.width = w * dpr;
-      scopeCanvas.height = h * dpr;
-      scopeCtx.resetTransform();
-      scopeCtx.scale(dpr, dpr);
-
-      if (fftCanvas) {
-        const fftWrapper = fftCanvas.parentElement;
-        if (fftWrapper) {
-          fftCanvas.width = fftWrapper.clientWidth * dpr;
-          fftCanvas.height = fftWrapper.clientHeight * dpr;
-          fftCtx.resetTransform();
-          fftCtx.scale(dpr, dpr);
-        }
+    const fftStage = fftCanvas.parentElement;
+    if (fftStage) {
+      const fr = fftStage.getBoundingClientRect();
+      if (fr.width > 10 && fr.height > 10) {
+        fftCanvas.width = Math.floor(fr.width * dpr);
+        fftCanvas.height = Math.floor(fr.height * dpr);
+        fftCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
     }
-
-    window.addEventListener('resize', resize);
-    setTimeout(resize, 50);
+    drawScope();
+    drawFFT();
   }
 
-  // --- Main Animation & Acquisition Loop ---
-  function startLoop() {
-    function frame() {
-      if (state.running) {
-        simTime += 0.016;
-        acquireWaveformChunk();
-        calculateMeasurements();
+  // ============================================================
+  // WINDOW CONTROLS
+  // ============================================================
+  function bindWindowControls() {
+    document.getElementById('winMin').addEventListener('click', () => {
+      if (window.electronAPI) window.electronAPI.minimize();
+    });
+    document.getElementById('winMax').addEventListener('click', () => {
+      if (window.electronAPI) window.electronAPI.maximize();
+    });
+    document.getElementById('winClose').addEventListener('click', () => {
+      if (window.electronAPI) window.electronAPI.close();
+    });
+  }
+
+  // ============================================================
+  // TOOLBAR ACTIONS
+  // ============================================================
+  function bindToolbar() {
+    document.getElementById('btnOpenConn').addEventListener('click', openConnModal);
+    document.getElementById('btnDisconnectQuick').addEventListener('click', disconnectHardware);
+
+    document.getElementById('btnRunStop').addEventListener('click', toggleRunStop);
+    document.getElementById('btnSingle').addEventListener('click', triggerSingle);
+    document.getElementById('btnAutoset').addEventListener('click', () => {
+      sendScpi(':AUT');
+      logScpi('SYS', 'Autoset command sent to instrument.');
+    });
+    document.getElementById('btnForceTrig').addEventListener('click', () => {
+      sendScpi(':TFOR');
+      if (state.connected) requestActiveWaveforms();
+    });
+    document.getElementById('btnClear').addEventListener('click', () => {
+      state.waveforms = { 1: null, 2: null, 3: null, 4: null };
+      renderMeasurements();
+      drawScope();
+      drawFFT();
+      logScpi('SYS', 'Display waveform buffers cleared.');
+    });
+
+    document.getElementById('btnSavePng').addEventListener('click', exportPng);
+    document.getElementById('btnSaveCsv').addEventListener('click', exportCsv);
+    document.getElementById('btnSaveSetup').addEventListener('click', saveSetupFile);
+    document.getElementById('btnLoadSetup').addEventListener('click', loadSetupFile);
+    document.getElementById('btnDefaultSetup').addEventListener('click', resetDefaults);
+    document.getElementById('btnOpenDrivers').addEventListener('click', () => {
+      document.getElementById('driverModal').classList.add('open');
+    });
+
+    // Keyboard shortcut: Space toggles Run/Stop when not typing in an input
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT') {
+        e.preventDefault();
+        toggleRunStop();
       }
-
-      drawOscilloscope();
-
-      const activeTab = document.querySelector('.dock-tab.active');
-      if (activeTab && activeTab.dataset.tab === 'fft') {
-        drawFFT();
-      }
-
-      animFrameId = requestAnimationFrame(frame);
-    }
-    animFrameId = requestAnimationFrame(frame);
+    });
   }
 
-  // --- Waveform Generation ---
-  function acquireWaveformChunk() {
-    const numPoints = 1000;
-    const timeScale = TIMEBASE_SCALES[state.timebaseIdx].val;
-    const totalTimeSpan = timeScale * 10;
-    const dt = totalTimeSpan / numPoints;
-
-    for (let i = 0; i < numPoints; i++) {
-      const t = simTime + (i * dt);
-      let ch1Val = 0;
-      let ch2Val = 0;
-
-      switch (state.simSignal) {
-        case 'drone_rpm': {
-          const dshotClock = 300000;
-          const bitVal = Math.sin(2 * Math.PI * dshotClock * t) > 0 ? 3.3 : 0.0;
-          const motorRpmFreq = 420;
-          const motorBackEmf = 1.2 * Math.sin(2 * Math.PI * motorRpmFreq * t);
-          const noise = (Math.random() - 0.5) * 0.15;
-          ch1Val = bitVal * 0.7 + noise;
-          ch2Val = motorBackEmf + (Math.sin(2 * Math.PI * motorRpmFreq * 3 * t) * 0.3) + (Math.random() - 0.5) * 0.05;
-          break;
-        }
-
-        case 'gyro_noise': {
-          const spiClock = 1000000;
-          const spiData = (Math.sin(2 * Math.PI * spiClock * t) > 0.2 ? 3.3 : 0.1);
-          const gyroNoise = (Math.random() - 0.5) * 0.8 + 1.65;
-          ch1Val = spiData + (Math.random() - 0.5) * 0.1;
-          ch2Val = gyroNoise;
-          break;
-        }
-
-        case 'square': {
-          const freq = 1000;
-          const phase = (t * freq) % 1.0;
-          let v = phase < 0.5 ? 2.5 : 0.0;
-          if (phase < 0.04) v += 0.4 * Math.exp(-phase * 100) * Math.sin(phase * 400);
-          else if (phase >= 0.5 && phase < 0.54) v -= 0.4 * Math.exp(-(phase - 0.5) * 100) * Math.sin((phase - 0.5) * 400);
-          ch1Val = v;
-          ch2Val = 1.25 * Math.sin(2 * Math.PI * 500 * t) + 1.25;
-          break;
-        }
-
-        case 'pwm': {
-          const freq = 400;
-          const pulseWidth = 0.0015;
-          const period = 1.0 / freq;
-          const pos = t % period;
-          ch1Val = pos < pulseWidth ? 3.3 : 0.0;
-          ch2Val = Math.sin(2 * Math.PI * 1000 * t) * 1.5;
-          break;
-        }
-
-        case 'sine':
-        default: {
-          const freq = 1000;
-          ch1Val = 2.0 * Math.sin(2 * Math.PI * freq * t) + (Math.random() - 0.5) * 0.05;
-          ch2Val = 1.5 * Math.cos(2 * Math.PI * freq * 2 * t) + (Math.random() - 0.5) * 0.04;
-          break;
-        }
-      }
-
-      if (state.channels[1].coupling === 'AC') ch1Val -= 1.65;
-      if (state.channels[2].coupling === 'AC') ch2Val -= 0.0;
-      if (state.channels[1].coupling === 'GND') ch1Val = 0;
-      if (state.channels[2].coupling === 'GND') ch2Val = 0;
-
-      state.waveforms.ch1[i] = ch1Val;
-      state.waveforms.ch2[i] = ch2Val;
-      state.waveforms.ch3[i] = ch1Val * 0.5;
-      state.waveforms.ch4[i] = -ch2Val * 0.8;
-      state.waveforms.math[i] = ch1Val - ch2Val;
+  function toggleRunStop() {
+    if (!state.connected) {
+      logScpi('ERR', 'Cannot start acquisition: no oscilloscope connected.');
+      openConnModal();
+      return;
     }
-
-    if (state.trigger.mode === 'SINGLE' && state.singleArm) {
-      state.running = false;
-      state.singleArm = false;
-      document.getElementById('runBadge').className = 'run-badge stopped';
-      document.getElementById('runBadge').textContent = 'STOP';
-      document.getElementById('runStopLabel').textContent = 'RUN';
-    }
+    state.running = !state.running;
+    state.singleArmed = false;
+    state.trigger.status = state.running ? 'RUN' : 'STOP';
+    sendScpi(state.running ? ':RUN' : ':STOP');
+    if (state.running) startPolling();
+    else stopPolling();
+    syncAcquisitionUI();
   }
 
-  // --- Oscilloscope Drawing Engine ---
-  function drawOscilloscope() {
-    const wrapper = document.getElementById('canvasWrapper');
-    const width = wrapper.clientWidth;
-    const height = wrapper.clientHeight;
-
-    scopeCtx.fillStyle = '#0d0e10';
-    scopeCtx.fillRect(0, 0, width, height);
-
-    drawGrid(width, height);
-    drawTriggerLine(width, height);
-
-    if (state.channels[1].enabled) drawTrace(state.waveforms.ch1, 1, width, height);
-    if (state.channels[2].enabled) drawTrace(state.waveforms.ch2, 2, width, height);
-    if (state.channels[3].enabled) drawTrace(state.waveforms.ch3, 3, width, height);
-    if (state.channels[4].enabled) drawTrace(state.waveforms.ch4, 4, width, height);
-
-    if (state.math.enabled) drawMathTrace(state.waveforms.math, width, height);
-    if (state.cursors.enabled) drawCursors(width, height);
+  function triggerSingle() {
+    if (!state.connected) {
+      logScpi('ERR', 'Cannot arm single sequence: no oscilloscope connected.');
+      openConnModal();
+      return;
+    }
+    state.running = false;
+    state.singleArmed = true;
+    state.trigger.status = 'WAIT';
+    stopPolling();
+    sendScpi(':SING');
+    requestActiveWaveforms();
+    syncAcquisitionUI();
   }
 
-  function drawGrid(w, h) {
-    scopeCtx.save();
-    scopeCtx.lineWidth = 1;
-    scopeCtx.strokeStyle = '#1e2025';
-
-    const numCols = 10;
-    const numRows = 8;
-    const colW = w / numCols;
-    const rowH = h / numRows;
-
-    for (let c = 1; c < numCols; c++) {
-      const x = Math.round(c * colW);
-      scopeCtx.beginPath();
-      scopeCtx.setLineDash([2, 4]);
-      scopeCtx.moveTo(x, 0);
-      scopeCtx.lineTo(x, h);
-      scopeCtx.stroke();
-    }
-
-    for (let r = 1; r < numRows; r++) {
-      const y = Math.round(r * rowH);
-      scopeCtx.beginPath();
-      scopeCtx.setLineDash([2, 4]);
-      scopeCtx.moveTo(0, y);
-      scopeCtx.lineTo(w, y);
-      scopeCtx.stroke();
-    }
-
-    const midX = Math.round(w / 2);
-    const midY = Math.round(h / 2);
-
-    scopeCtx.setLineDash([]);
-    scopeCtx.strokeStyle = '#2d3038';
-
-    scopeCtx.beginPath();
-    scopeCtx.moveTo(0, midY);
-    scopeCtx.lineTo(w, midY);
-    scopeCtx.stroke();
-
-    scopeCtx.beginPath();
-    scopeCtx.moveTo(midX, 0);
-    scopeCtx.lineTo(midX, h);
-    scopeCtx.stroke();
-
-    scopeCtx.strokeStyle = '#404450';
-    const subTicksX = numCols * 5;
-    for (let i = 0; i <= subTicksX; i++) {
-      const x = (w / subTicksX) * i;
-      const tickH = (i % 5 === 0) ? 6 : 3;
-      scopeCtx.beginPath();
-      scopeCtx.moveTo(x, midY - tickH);
-      scopeCtx.lineTo(x, midY + tickH);
-      scopeCtx.stroke();
-    }
-
-    const subTicksY = numRows * 5;
-    for (let i = 0; i <= subTicksY; i++) {
-      const y = (h / subTicksY) * i;
-      const tickW = (i % 5 === 0) ? 6 : 3;
-      scopeCtx.beginPath();
-      scopeCtx.moveTo(midX - tickW, y);
-      scopeCtx.lineTo(midX + tickW, y);
-      scopeCtx.stroke();
-    }
-
-    scopeCtx.restore();
-  }
-
-  function drawTriggerLine(w, h) {
-    const trigChan = state.trigger.source;
-    let chNum = 1;
-    if (trigChan.startsWith('CH')) chNum = parseInt(trigChan.replace('CH', '')) || 1;
-    const ch = state.channels[chNum];
-    const vScale = VOLT_SCALES[ch.voltIdx].val;
-
-    const rowH = h / 8;
-    const zeroY = (h / 2) - (ch.offset * rowH);
-    const trigLevelV = state.trigger.level;
-    const trigY = zeroY - (trigLevelV / vScale) * rowH;
-
-    scopeCtx.save();
-    scopeCtx.strokeStyle = 'rgba(249, 115, 22, 0.4)';
-    scopeCtx.setLineDash([4, 6]);
-    scopeCtx.lineWidth = 1;
-    scopeCtx.beginPath();
-    scopeCtx.moveTo(0, trigY);
-    scopeCtx.lineTo(w, trigY);
-    scopeCtx.stroke();
-    scopeCtx.restore();
-
-    const trigMarker = document.getElementById('trigMarker');
-    if (trigMarker) {
-      trigMarker.style.top = `${Math.max(10, Math.min(h - 10, trigY))}px`;
-    }
-  }
-
-  function drawTrace(data, chNum, w, h) {
-    const ch = state.channels[chNum];
-    const vScale = VOLT_SCALES[ch.voltIdx].val;
-    const rowH = h / 8;
-    const zeroY = (h / 2) - (ch.offset * rowH);
-
-    const gndMarker = document.getElementById(`gndCh${chNum}`);
-    if (gndMarker) {
-      gndMarker.style.display = ch.enabled ? 'block' : 'none';
-      gndMarker.style.top = `${Math.max(10, Math.min(h - 10, zeroY))}px`;
-    }
-
-    scopeCtx.save();
-    scopeCtx.strokeStyle = ch.color;
-    scopeCtx.lineWidth = 1.8;
-    scopeCtx.lineJoin = 'round';
-    scopeCtx.lineCap = 'round';
-    scopeCtx.shadowColor = ch.color;
-    scopeCtx.shadowBlur = 4;
-
-    scopeCtx.beginPath();
-    const len = data.length;
-    for (let i = 0; i < len; i++) {
-      const x = (i / (len - 1)) * w;
-      const v = data[i];
-      const y = zeroY - (v / vScale) * rowH;
-
-      if (i === 0) scopeCtx.moveTo(x, y);
-      else scopeCtx.lineTo(x, y);
-    }
-    scopeCtx.stroke();
-    scopeCtx.restore();
-  }
-
-  function drawMathTrace(data, w, h) {
-    const ch1 = state.channels[1];
-    const vScale = VOLT_SCALES[ch1.voltIdx].val;
-    const rowH = h / 8;
-    const zeroY = h / 2;
-
-    scopeCtx.save();
-    scopeCtx.strokeStyle = '#bf5af2';
-    scopeCtx.lineWidth = 1.5;
-    scopeCtx.shadowColor = '#bf5af2';
-    scopeCtx.shadowBlur = 4;
-    scopeCtx.setLineDash([3, 2]);
-
-    scopeCtx.beginPath();
-    const len = data.length;
-    for (let i = 0; i < len; i++) {
-      const x = (i / (len - 1)) * w;
-      const v = data[i];
-      const y = zeroY - (v / vScale) * rowH;
-      if (i === 0) scopeCtx.moveTo(x, y);
-      else scopeCtx.lineTo(x, y);
-    }
-    scopeCtx.stroke();
-    scopeCtx.restore();
-  }
-
-  function drawCursors(w, h) {
-    const cur = state.cursors;
-    scopeCtx.save();
-    scopeCtx.strokeStyle = 'rgba(233, 233, 235, 0.7)';
-    scopeCtx.setLineDash([3, 3]);
-    scopeCtx.lineWidth = 1;
-
-    const x1Px = (w / 2) + (cur.x1 * w);
-    const x2Px = (w / 2) + (cur.x2 * w);
-
-    scopeCtx.beginPath();
-    scopeCtx.moveTo(x1Px, 0);
-    scopeCtx.lineTo(x1Px, h);
-    scopeCtx.moveTo(x2Px, 0);
-    scopeCtx.lineTo(x2Px, h);
-    scopeCtx.stroke();
-
-    scopeCtx.fillStyle = '#e9e9eb';
-    scopeCtx.font = '10px "JetBrains Mono"';
-    scopeCtx.fillText('X1', x1Px + 4, 16);
-    scopeCtx.fillText('X2', x2Px + 4, 16);
-
-    scopeCtx.restore();
-
-    const timeScale = TIMEBASE_SCALES[state.timebaseIdx].val;
-    const deltaT = Math.abs(cur.x2 - cur.x1) * (timeScale * 10);
-    const freq = deltaT > 0 ? (1 / deltaT) : 0;
-
-    document.getElementById('curX1X2').textContent = `${formatTime(cur.x1 * timeScale * 10)} / ${formatTime(cur.x2 * timeScale * 10)}`;
-    document.getElementById('curDeltaX').textContent = formatTime(deltaT);
-    document.getElementById('curFreq').textContent = formatFrequency(freq);
-  }
-
-  function drawFFT() {
-    if (!fftCtx || !fftCanvas) return;
-    const w = fftCanvas.parentElement.clientWidth;
-    const h = fftCanvas.parentElement.clientHeight;
-
-    fftCtx.fillStyle = '#0c0d0f';
-    fftCtx.fillRect(0, 0, w, h);
-
-    const srcChan = state.fft.source;
-    const rawData = state.waveforms[`ch${srcChan}`];
-    const N = 256;
-    const real = new Float32Array(N);
-
-    for (let i = 0; i < N; i++) {
-      const windowCoeff = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (N - 1)));
-      real[i] = rawData[i] * windowCoeff;
-    }
-
-    const bins = N / 2;
-    const magnitudes = new Float32Array(bins);
-    let maxMag = 0.001;
-    let peakBin = 0;
-
-    for (let k = 0; k < bins; k++) {
-      let re = 0;
-      let im = 0;
-      for (let n = 0; n < N; n++) {
-        const phi = (2 * Math.PI * k * n) / N;
-        re += real[n] * Math.cos(phi);
-        im -= real[n] * Math.sin(phi);
-      }
-      const mag = Math.sqrt(re * re + im * im);
-      magnitudes[k] = mag;
-      if (k > 1 && mag > maxMag) {
-        maxMag = mag;
-        peakBin = k;
-      }
-    }
-
-    fftCtx.save();
-    fftCtx.strokeStyle = '#00d2ff';
-    fftCtx.lineWidth = 1.5;
-    fftCtx.fillStyle = 'rgba(0, 210, 255, 0.12)';
-
-    fftCtx.beginPath();
-    fftCtx.moveTo(0, h);
-
-    for (let k = 0; k < bins; k++) {
-      const x = (k / (bins - 1)) * w;
-      const db = 20 * Math.log10((magnitudes[k] / maxMag) + 0.001);
-      const y = h - ((db + 60) / 60) * h;
-      fftCtx.lineTo(x, Math.max(0, Math.min(h, y)));
-    }
-    fftCtx.lineTo(w, h);
-    fftCtx.closePath();
-    fftCtx.fill();
-    fftCtx.stroke();
-    fftCtx.restore();
-
-    const timeScale = TIMEBASE_SCALES[state.timebaseIdx].val;
-    const samplingFreq = 1000 / (timeScale * 10);
-    const peakFreq = (peakBin * samplingFreq) / N;
-    document.getElementById('fftPeakFreq').textContent = formatFrequency(peakFreq);
-  }
-
-  function calculateMeasurements() {
-    const ch = state.activeChannel;
-    const data = state.waveforms[`ch${ch}`];
-    if (!data || data.length === 0) return;
-
-    let max = -Infinity;
-    let min = Infinity;
-    let sum = 0;
-    let sumSq = 0;
-
-    for (let i = 0; i < data.length; i++) {
-      const v = data[i];
-      if (v > max) max = v;
-      if (v < min) min = v;
-      sum += v;
-      sumSq += v * v;
-    }
-
-    const vpp = max - min;
-    const vavg = sum / data.length;
-    const vrms = Math.sqrt(sumSq / data.length);
-
-    const mid = (max + min) / 2;
-    let crossings = 0;
-    let firstCrossing = -1;
-    let lastCrossing = -1;
-
-    for (let i = 1; i < data.length; i++) {
-      if ((data[i - 1] <= mid && data[i] > mid) || (data[i - 1] >= mid && data[i] < mid)) {
-        crossings++;
-        if (firstCrossing < 0) firstCrossing = i;
-        lastCrossing = i;
-      }
-    }
-
-    const timeScale = TIMEBASE_SCALES[state.timebaseIdx].val;
-    const dt = (timeScale * 10) / data.length;
-    let freq = 0;
-    let period = 0;
-
-    if (crossings >= 2 && lastCrossing > firstCrossing) {
-      const halfCycles = crossings - 1;
-      const totalT = (lastCrossing - firstCrossing) * dt;
-      period = (totalT / halfCycles) * 2;
-      freq = period > 0 ? (1 / period) : 0;
-    }
-
-    state.measurements = {
-      vpp: `${vpp.toFixed(2)} V`,
-      vrms: `${vrms.toFixed(2)} V`,
-      vmax: `${max.toFixed(2)} V`,
-      vmin: `${min.toFixed(2)} V`,
-      vavg: `${vavg.toFixed(2)} V`,
-      freq: formatFrequency(freq),
-      period: formatTime(period),
-      duty: '50.0 %',
-      rise: '2.4 ns'
+  function resetDefaults() {
+    state.channels = {
+      1: { enabled: true,  invert: false, vIdx: 9, offset: 0, coupling: 'DC', probe: 10, bwLimit: 'OFF' },
+      2: { enabled: true,  invert: false, vIdx: 9, offset: 0, coupling: 'DC', probe: 10, bwLimit: 'OFF' },
+      3: { enabled: false, invert: false, vIdx: 9, offset: 0, coupling: 'DC', probe: 10, bwLimit: 'OFF' },
+      4: { enabled: false, invert: false, vIdx: 9, offset: 0, coupling: 'DC', probe: 10, bwLimit: 'OFF' }
     };
+    state.horiz = { tIdx: 16, posDiv: 0, format: 'YT' };
+    state.trigger = {
+      type: 'EDGE', source: 'CHAN1', sweep: 'AUTO', slope: 'POS',
+      coupling: 'DC', level: 0.0, holdoffIdx: 0,
+      status: state.connected ? (state.running ? 'RUN' : 'STOP') : 'OFFLINE'
+    };
+    state.acq.mode = 'NORM';
+    state.acq.memDepth = 10000;
+    state.math.enabled = false;
+    state.cursors.mode = 'off';
 
-    updateMeasurementsDisplay();
+    if (state.connected) sendScpi('*RST');
+    syncAllUI();
+    drawScope();
+    drawFFT();
+    logScpi('SYS', 'Instrument configuration reset to factory defaults.');
   }
 
-  function renderMeasurementsGrid() {
-    const grid = document.getElementById('measurementsGrid');
-    const items = [
-      { key: 'vpp', label: 'Vpp (Peak-Peak)' },
-      { key: 'vrms', label: 'Vrms (True RMS)' },
-      { key: 'vmax', label: 'Vmax (Peak High)' },
-      { key: 'vmin', label: 'Vmin (Peak Low)' },
-      { key: 'vavg', label: 'Vavg (DC Mean)' },
-      { key: 'freq', label: 'Frequency' },
-      { key: 'period', label: 'Period' },
-      { key: 'duty', label: 'Duty Cycle' }
-    ];
+  // ============================================================
+  // SIDEBAR CONTROLS
+  // ============================================================
+  function bindSidebarControls() {
+    // Channel selector tabs & bottom channel tiles
+    document.querySelectorAll('#vertChTabs .ch-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => selectChannel(parseInt(btn.dataset.ch, 10)));
+    });
 
-    grid.innerHTML = items.map(item => `
-      <div class="measure-card ch${state.activeChannel}" id="card_${item.key}">
-        <div class="measure-label">${item.label}</div>
-        <div class="measure-val" id="val_${item.key}">--</div>
-      </div>
-    `).join('');
+    document.querySelectorAll('#chStrip .ch-tile').forEach(tile => {
+      tile.addEventListener('click', () => {
+        const ch = tile.dataset.ch;
+        if (ch === 'M') {
+          activateDockPane('math');
+          return;
+        }
+        const chNum = parseInt(ch, 10);
+        if (state.activeChannel === chNum) {
+          toggleChannelEnable(chNum);
+        } else {
+          selectChannel(chNum);
+        }
+      });
+    });
+
+    // Vertical controls
+    document.getElementById('btnChEnable').addEventListener('click', () => toggleChannelEnable(state.activeChannel));
+    document.getElementById('btnChInvert').addEventListener('click', () => {
+      const ch = state.channels[state.activeChannel];
+      ch.invert = !ch.invert;
+      sendScpi(`:CHAN${state.activeChannel}:INV ${ch.invert ? 'ON' : 'OFF'}`);
+      syncVerticalUI();
+      drawScope();
+    });
+
+    document.getElementById('btnVScaleDown').addEventListener('click', () => stepVScale(-1));
+    document.getElementById('btnVScaleUp').addEventListener('click', () => stepVScale(1));
+
+    const rngVOffset = document.getElementById('rngVOffset');
+    rngVOffset.addEventListener('input', (e) => {
+      const ch = state.channels[state.activeChannel];
+      ch.offset = parseFloat(e.target.value);
+      document.getElementById('valVOffset').textContent = `${ch.offset >= 0 ? '+' : ''}${ch.offset.toFixed(2)} div`;
+      drawScope();
+    });
+    rngVOffset.addEventListener('change', () => {
+      const ch = state.channels[state.activeChannel];
+      const offsetVolts = (ch.offset * currentVScale(state.activeChannel)).toFixed(4);
+      sendScpi(`:CHAN${state.activeChannel}:OFFS ${offsetVolts}`);
+    });
+    document.getElementById('btnVOffsetZero').addEventListener('click', () => {
+      state.channels[state.activeChannel].offset = 0;
+      sendScpi(`:CHAN${state.activeChannel}:OFFS 0`);
+      syncVerticalUI();
+      drawScope();
+    });
+
+    bindSegmented('segCoupling', (val) => {
+      state.channels[state.activeChannel].coupling = val;
+      sendScpi(`:CHAN${state.activeChannel}:COUP ${val}`);
+      syncChannelStrip();
+    });
+
+    bindSegmented('segProbe', (val) => {
+      state.channels[state.activeChannel].probe = parseInt(val, 10);
+      sendScpi(`:CHAN${state.activeChannel}:PROB ${val}`);
+      syncVerticalUI();
+      syncChannelStrip();
+      drawScope();
+    });
+
+    bindSegmented('segBwLimit', (val) => {
+      state.channels[state.activeChannel].bwLimit = val;
+      sendScpi(`:CHAN${state.activeChannel}:BWL ${val}`);
+    });
+
+    // Horizontal controls
+    document.getElementById('btnHScaleDown').addEventListener('click', () => stepHScale(-1));
+    document.getElementById('btnHScaleUp').addEventListener('click', () => stepHScale(1));
+
+    const rngHPos = document.getElementById('rngHPos');
+    rngHPos.addEventListener('input', (e) => {
+      state.horiz.posDiv = parseFloat(e.target.value);
+      syncHorizontalUI();
+      drawScope();
+    });
+    rngHPos.addEventListener('change', () => {
+      const sec = (state.horiz.posDiv * currentTScale()).toExponential(4);
+      sendScpi(`:TIM:MAIN:OFFS ${sec}`);
+    });
+    document.getElementById('btnHPosZero').addEventListener('click', () => {
+      state.horiz.posDiv = 0;
+      sendScpi(':TIM:MAIN:OFFS 0');
+      syncHorizontalUI();
+      drawScope();
+    });
+
+    bindSegmented('segHFormat', (val) => {
+      state.horiz.format = val;
+      sendScpi(`:TIM:MODE ${val === 'YT' ? 'MAIN' : val}`);
+      syncHorizontalUI();
+      drawScope();
+    });
+
+    // Trigger controls
+    document.getElementById('selTrigType').addEventListener('change', (e) => {
+      state.trigger.type = e.target.value;
+      sendScpi(`:TRIG:MODE ${state.trigger.type}`);
+      syncTriggerUI();
+    });
+
+    document.getElementById('selTrigSrc').addEventListener('change', (e) => {
+      state.trigger.source = e.target.value;
+      sendScpi(`:TRIG:EDGE:SOUR ${state.trigger.source}`);
+      syncTriggerUI();
+      drawScope();
+    });
+
+    bindSegmented('segTrigSweep', (val) => {
+      state.trigger.sweep = val;
+      sendScpi(`:TRIG:SWE ${val}`);
+      syncTriggerUI();
+    });
+
+    bindSegmented('segTrigSlope', (val) => {
+      state.trigger.slope = val;
+      sendScpi(`:TRIG:EDGE:SLOP ${val}`);
+      syncTriggerUI();
+    });
+
+    document.getElementById('selTrigCoup').addEventListener('change', (e) => {
+      state.trigger.coupling = e.target.value;
+      sendScpi(`:TRIG:COUP ${state.trigger.coupling}`);
+    });
+
+    const rngTrigLevel = document.getElementById('rngTrigLevel');
+    rngTrigLevel.addEventListener('input', (e) => {
+      state.trigger.level = parseFloat(e.target.value);
+      syncTriggerUI();
+      drawScope();
+    });
+    rngTrigLevel.addEventListener('change', () => {
+      sendScpi(`:TRIG:EDGE:LEV ${state.trigger.level.toFixed(4)}`);
+    });
+
+    document.getElementById('btnTrig50').addEventListener('click', () => {
+      const srcNum = parseInt(state.trigger.source.replace('CHAN', ''), 10) || 1;
+      const samples = state.waveforms[srcNum];
+      if (samples && samples.length > 0) {
+        let min = Infinity, max = -Infinity;
+        for (let i = 0; i < samples.length; i++) {
+          if (samples[i] < min) min = samples[i];
+          if (samples[i] > max) max = samples[i];
+        }
+        state.trigger.level = (min + max) * 0.5;
+      } else {
+        state.trigger.level = 0;
+      }
+      sendScpi(`:TRIG:EDGE:LEV ${state.trigger.level.toFixed(4)}`);
+      syncTriggerUI();
+      drawScope();
+    });
+
+    document.getElementById('btnHoldoffDown').addEventListener('click', () => stepHoldoff(-1));
+    document.getElementById('btnHoldoffUp').addEventListener('click', () => stepHoldoff(1));
+
+    // Acquisition & Display
+    bindSegmented('segAcqMode', (val) => {
+      state.acq.mode = val;
+      sendScpi(`:ACQ:TYPE ${val}`);
+    });
+
+    document.getElementById('selMemDepth').addEventListener('change', (e) => {
+      state.acq.memDepth = parseInt(e.target.value, 10);
+      sendScpi(`:ACQ:MDEP ${state.acq.memDepth}`);
+      syncHorizontalUI();
+    });
+
+    bindSegmented('segTraceType', (val) => {
+      state.acq.traceType = val;
+      drawScope();
+    });
+
+    document.getElementById('rngGridAlpha').addEventListener('input', (e) => {
+      state.acq.gridAlpha = parseFloat(e.target.value);
+      document.getElementById('valGridAlpha').textContent = `${Math.round(state.acq.gridAlpha * 100)}%`;
+      drawScope();
+    });
   }
 
-  function updateMeasurementsDisplay() {
-    for (const [key, val] of Object.entries(state.measurements)) {
-      const el = document.getElementById(`val_${key}`);
-      if (el) el.textContent = val;
+  function bindSegmented(containerId, onSelect) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.querySelectorAll('.seg-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        el.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        onSelect(btn.dataset.val);
+      });
+    });
+  }
+
+  function setSegmentedValue(containerId, val) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.querySelectorAll('.seg-btn').forEach(b => {
+      b.classList.toggle('active', String(b.dataset.val) === String(val));
+    });
+  }
+
+  function selectChannel(chNum) {
+    state.activeChannel = chNum;
+    document.querySelectorAll('#vertChTabs .ch-tab-btn').forEach(b => {
+      b.classList.toggle('active', parseInt(b.dataset.ch, 10) === chNum);
+    });
+    document.querySelectorAll('#chStrip .ch-tile').forEach(t => {
+      t.classList.toggle('selected', t.dataset.ch === String(chNum));
+    });
+    syncVerticalUI();
+  }
+
+  function toggleChannelEnable(chNum) {
+    const ch = state.channels[chNum];
+    ch.enabled = !ch.enabled;
+    sendScpi(`:CHAN${chNum}:DISP ${ch.enabled ? 'ON' : 'OFF'}`);
+    syncVerticalUI();
+    syncChannelStrip();
+    drawScope();
+  }
+
+  function stepVScale(delta) {
+    const ch = state.channels[state.activeChannel];
+    ch.vIdx = Math.max(0, Math.min(VOLT_STEPS.length - 1, ch.vIdx + delta));
+    const v = currentVScale(state.activeChannel);
+    sendScpi(`:CHAN${state.activeChannel}:SCAL ${v.toExponential(3)}`);
+    syncVerticalUI();
+    syncChannelStrip();
+    updateCursorReadouts();
+    drawScope();
+  }
+
+  function stepHScale(delta) {
+    state.horiz.tIdx = Math.max(0, Math.min(TIME_STEPS.length - 1, state.horiz.tIdx + delta));
+    sendScpi(`:TIM:MAIN:SCAL ${currentTScale().toExponential(3)}`);
+    syncHorizontalUI();
+    updateCursorReadouts();
+    drawScope();
+    drawFFT();
+  }
+
+  function stepHoldoff(delta) {
+    state.trigger.holdoffIdx = Math.max(0, Math.min(HOLDOFF_STEPS.length - 1, state.trigger.holdoffIdx + delta));
+    const h = HOLDOFF_STEPS[state.trigger.holdoffIdx];
+    sendScpi(`:TRIG:HOLD ${h.toExponential(3)}`);
+    syncTriggerUI();
+  }
+
+  // ============================================================
+  // DOCK CONTROLS (MEASUREMENTS, CURSORS, MATH/FFT, SCPI)
+  // ============================================================
+  function bindDockControls() {
+    document.querySelectorAll('.dock-tab').forEach(tab => {
+      tab.addEventListener('click', () => activateDockPane(tab.dataset.pane));
+    });
+
+    document.getElementById('btnToggleDock').addEventListener('click', () => {
+      const dock = document.getElementById('bottomDock');
+      const collapsed = dock.classList.toggle('collapsed');
+      document.getElementById('btnToggleDock').textContent = collapsed ? 'Show' : 'Hide';
+      setTimeout(resizeCanvases, 20);
+    });
+
+    // Measurements source
+    bindSegmented('measSourceGroup', (val) => {
+      state.measSource = parseInt(val, 10);
+      renderMeasurements();
+    });
+
+    document.getElementById('btnQueryMeas').addEventListener('click', () => {
+      if (!state.connected) {
+        logScpi('ERR', 'Connect oscilloscope before querying hardware measurements.');
+        return;
+      }
+      const ch = `CHAN${state.measSource}`;
+      sendScpi(`:MEAS:VPP? ${ch}`);
+      sendScpi(`:MEAS:FREQ? ${ch}`);
+      sendScpi(`:MEAS:VRMS? ${ch}`);
+    });
+
+    // Cursors
+    bindSegmented('cursorModeGroup', (val) => {
+      state.cursors.mode = val;
+      updateCursorReadouts();
+      drawScope();
+    });
+    document.getElementById('selCursorSrc').addEventListener('change', (e) => {
+      state.cursors.source = parseInt(e.target.value, 10);
+      updateCursorReadouts();
+    });
+    document.getElementById('btnResetCursors').addEventListener('click', () => {
+      state.cursors.x1 = 0.25;
+      state.cursors.x2 = 0.75;
+      state.cursors.y1 = 0.25;
+      state.cursors.y2 = 0.75;
+      updateCursorReadouts();
+      drawScope();
+    });
+
+    // Math / FFT
+    document.getElementById('btnMathEnable').addEventListener('click', () => {
+      state.math.enabled = !state.math.enabled;
+      const btn = document.getElementById('btnMathEnable');
+      btn.textContent = state.math.enabled ? 'ON' : 'OFF';
+      btn.classList.toggle('on', state.math.enabled);
+      syncChannelStrip();
+      drawScope();
+    });
+
+    document.getElementById('selMathOp').addEventListener('change', (e) => {
+      state.math.op = e.target.value;
+      syncChannelStrip();
+      drawScope();
+    });
+    document.getElementById('selFftSrc').addEventListener('change', (e) => {
+      state.math.fftSrc = parseInt(e.target.value, 10);
+      drawFFT();
+    });
+    document.getElementById('selFftWindow').addEventListener('change', (e) => {
+      state.math.fftWindow = e.target.value;
+      drawFFT();
+    });
+    document.getElementById('selFftUnit').addEventListener('change', (e) => {
+      state.math.fftUnit = e.target.value;
+      drawFFT();
+    });
+
+    // SCPI Console
+    const scpiInput = document.getElementById('scpiInput');
+    document.getElementById('btnScpiSend').addEventListener('click', submitScpiInput);
+    scpiInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        submitScpiInput();
+      } else if (e.key === 'ArrowUp') {
+        if (scpiHistory.length > 0 && scpiHistoryIdx < scpiHistory.length - 1) {
+          scpiHistoryIdx++;
+          scpiInput.value = scpiHistory[scpiHistory.length - 1 - scpiHistoryIdx];
+        }
+        e.preventDefault();
+      } else if (e.key === 'ArrowDown') {
+        if (scpiHistoryIdx > 0) {
+          scpiHistoryIdx--;
+          scpiInput.value = scpiHistory[scpiHistory.length - 1 - scpiHistoryIdx];
+        } else {
+          scpiHistoryIdx = -1;
+          scpiInput.value = '';
+        }
+        e.preventDefault();
+      }
+    });
+
+    document.querySelectorAll('.scpi-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        sendScpi(chip.dataset.cmd, true);
+      });
+    });
+
+    document.getElementById('btnClearScpi').addEventListener('click', () => {
+      document.getElementById('scpiLog').innerHTML = '';
+    });
+  }
+
+  function activateDockPane(paneName) {
+    const dock = document.getElementById('bottomDock');
+    if (dock.classList.contains('collapsed')) {
+      dock.classList.remove('collapsed');
+      document.getElementById('btnToggleDock').textContent = 'Hide';
     }
+    document.querySelectorAll('.dock-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.pane === paneName);
+    });
+    document.querySelectorAll('.dock-pane').forEach(p => {
+      p.classList.toggle('active', p.id === `pane-${paneName}`);
+    });
+    setTimeout(resizeCanvases, 20);
   }
 
-  // --- Dynamic COM Port Enumeration ---
-  async function refreshComPortDropdown() {
+  function submitScpiInput() {
+    const input = document.getElementById('scpiInput');
+    const cmd = input.value.trim();
+    if (!cmd) return;
+    scpiHistory.push(cmd);
+    scpiHistoryIdx = -1;
+    input.value = '';
+    sendScpi(cmd, true);
+  }
+
+  // ============================================================
+  // MODALS & HARDWARE CONNECTIVITY
+  // ============================================================
+  function bindModals() {
+    document.getElementById('btnCloseConn').addEventListener('click', () => {
+      document.getElementById('connModal').classList.remove('open');
+    });
+    document.getElementById('btnCloseDriver').addEventListener('click', () => {
+      document.getElementById('driverModal').classList.remove('open');
+    });
+    document.getElementById('btnCloseDriverOk').addEventListener('click', () => {
+      document.getElementById('driverModal').classList.remove('open');
+    });
+
+    document.getElementById('btnConnToDrivers').addEventListener('click', () => {
+      document.getElementById('connModal').classList.remove('open');
+      document.getElementById('driverModal').classList.add('open');
+    });
+
+    const launchDevMgr = () => {
+      if (window.electronAPI && window.electronAPI.openDeviceManager) {
+        window.electronAPI.openDeviceManager();
+      }
+    };
+    document.getElementById('btnLaunchDevMgr').addEventListener('click', launchDevMgr);
+    document.getElementById('btnOpenDevMgrFromConn').addEventListener('click', launchDevMgr);
+
+    // Connection Modal Tabs
+    document.querySelectorAll('.modal-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const target = tab.dataset.ctab;
+        document.getElementById('ctab-serial').style.display = target === 'serial' ? 'flex' : 'none';
+        document.getElementById('ctab-usb').style.display = target === 'usb' ? 'flex' : 'none';
+        document.getElementById('btnConnectSerial').style.display = target === 'serial' ? 'inline-flex' : 'none';
+      });
+    });
+
+    document.getElementById('btnRefreshPorts').addEventListener('click', scanHardwarePorts);
+    document.getElementById('btnConnectSerial').addEventListener('click', connectSerial);
+    document.getElementById('btnConnectWebUsb').addEventListener('click', connectDirectUsb);
+    document.getElementById('btnModalDisconnect').addEventListener('click', disconnectHardware);
+
+    document.getElementById('selPollRate').addEventListener('change', (e) => {
+      state.acq.pollIntervalMs = parseInt(e.target.value, 10);
+      if (state.connected && state.running) {
+        startPolling();
+      }
+    });
+  }
+
+  function openConnModal() {
+    document.getElementById('connErrorMsg').style.display = 'none';
+    document.getElementById('connModal').classList.add('open');
+    scanHardwarePorts();
+  }
+
+  async function scanHardwarePorts() {
     const sel = document.getElementById('selComPort');
-    if (!sel) return;
+    const tbody = document.getElementById('hwTableBody');
+    const lblCount = document.getElementById('lblHwCount');
 
     sel.innerHTML = '<option value="">Scanning Windows COM ports...</option>';
+    tbody.innerHTML = '<tr><td colspan="3">Scanning PnP devices...</td></tr>';
 
     if (window.electronAPI && window.electronAPI.getComPortsDetailed) {
       try {
@@ -681,511 +794,1269 @@
           ports.forEach(p => {
             const opt = document.createElement('option');
             opt.value = p.port;
-            const statusTag = p.present ? ' [Active]' : ' [Detected]';
-            opt.textContent = `${p.port} - ${p.name}${statusTag}`;
+            const statusTag = p.present ? 'Active' : 'Not Connected';
+            opt.textContent = `${p.port} — ${p.name} [${statusTag}]`;
             sel.appendChild(opt);
           });
-
-          // Pre-select COM3 or first active
-          const preferred = ports.find(p => p.port === 'COM3' || p.present);
+          // Prefer non-COM1 USB Serial port if present
+          const preferred = ports.find(p => p.port !== 'COM1' && p.present) || ports.find(p => p.port !== 'COM1') || ports[0];
           if (preferred) sel.value = preferred.port;
         } else {
-          sel.innerHTML = '<option value="COM1">COM1 - Communications Port</option>';
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'No COM ports detected — enter manually below or check Drivers';
+          sel.appendChild(opt);
         }
-      } catch (err) {
-        sel.innerHTML = '<option value="COM1">COM1 - Default Port</option>';
+      } catch (e) {
+        sel.innerHTML = '<option value="">Scan error — enter COM port manually</option>';
       }
-    } else {
-      sel.innerHTML = '<option value="COM1">COM1 - Default Port</option>';
     }
-
-    refreshHardwareDiagnostics();
-  }
-
-  // --- Live Windows Hardware Diagnostics ---
-  async function refreshHardwareDiagnostics() {
-    const listEl = document.getElementById('hardwareDeviceList');
-    const countEl = document.getElementById('lblDeviceCount');
-    if (!listEl) return;
 
     if (window.electronAPI && window.electronAPI.getAllUsbDevices) {
       try {
-        const devs = await window.electronAPI.getAllUsbDevices();
-        if (countEl) countEl.textContent = `${devs.length} device(s) found`;
-        if (devs && devs.length > 0) {
-          listEl.innerHTML = devs.slice(0, 10).map(d => {
-            return `<div>• <strong style="color:var(--text-primary);">${escapeHtml(d.FriendlyName || 'Device')}</strong> <span style="color:var(--text-muted);">(${escapeHtml(d.Class || 'Unknown')})</span></div>`;
-          }).join('');
+        const devices = await window.electronAPI.getAllUsbDevices();
+        const filtered = (devices || []).filter(d =>
+          d.FriendlyName &&
+          !/Root Hub|Host Controller|Input Device|HID|Keyboard|Mouse|Microphone|Audio/i.test(d.FriendlyName)
+        );
+        lblCount.textContent = `${filtered.length} device${filtered.length === 1 ? '' : 's'}`;
+        if (filtered.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="3">No USB instruments or serial bridges detected</td></tr>';
         } else {
-          listEl.innerHTML = '<div style="color:var(--text-muted);">No external USB instruments currently active.</div>';
+          tbody.innerHTML = filtered.map(d => `
+            <tr>
+              <td style="color: var(--text-primary);">${escapeHtml(d.FriendlyName)}</td>
+              <td>${escapeHtml(d.Class || '-')}</td>
+              <td>${escapeHtml(d.InstanceId || '-')}</td>
+            </tr>
+          `).join('');
         }
       } catch (e) {
-        listEl.innerHTML = '<div>System ready.</div>';
+        tbody.innerHTML = '<tr><td colspan="3">Unable to enumerate PnP hardware</td></tr>';
       }
     }
   }
 
-  // --- UI Bindings & Event Listeners ---
-  function bindUIEvents() {
-    document.getElementById('btnRunStop').addEventListener('click', toggleRunStop);
-    document.getElementById('btnSingle').addEventListener('click', triggerSingleShot);
-    document.getElementById('btnAutoSet').addEventListener('click', autoSetupScope);
-    document.getElementById('btnScreenshot').addEventListener('click', captureScreenshot);
-    document.getElementById('btnExportCSV').addEventListener('click', exportCSV);
+  async function connectSerial() {
+    const errBox = document.getElementById('connErrorMsg');
+    errBox.style.display = 'none';
 
-    const modal = document.getElementById('connModal');
-    document.getElementById('btnConnectModal').addEventListener('click', () => {
-      refreshComPortDropdown();
-      modal.classList.add('active');
-    });
-    document.getElementById('connStatusBtn').addEventListener('click', () => {
-      refreshComPortDropdown();
-      modal.classList.add('active');
-    });
-    document.getElementById('btnCloseModal').addEventListener('click', () => modal.classList.remove('active'));
-
-    const driverModal = document.getElementById('driverGuideModal');
-    document.getElementById('btnDriverGuide').addEventListener('click', () => driverModal.classList.add('active'));
-    document.getElementById('linkOpenDriverGuide').addEventListener('click', (e) => {
-      e.preventDefault();
-      driverModal.classList.add('active');
-    });
-    document.getElementById('btnCloseDriverModal').addEventListener('click', () => driverModal.classList.remove('active'));
-    document.getElementById('btnOkDriverGuide').addEventListener('click', () => driverModal.classList.remove('active'));
-
-    document.getElementById('btnLaunchDevMgr').addEventListener('click', () => {
-      if (window.electronAPI && window.electronAPI.openDeviceManager) {
-        window.electronAPI.openDeviceManager();
-      }
-    });
-
-    document.getElementById('btnRefreshPorts').addEventListener('click', refreshComPortDropdown);
-    document.getElementById('btnConnectSerialDirect').addEventListener('click', connectDirectSerial);
-    document.getElementById('btnConnectWebUSB').addEventListener('click', connectWebUSB);
-    document.getElementById('btnEnableSim').addEventListener('click', () => {
-      setConnectionMode('sim');
-      modal.classList.remove('active');
-    });
-
-    document.querySelectorAll('.chan-pill').forEach(pill => {
-      pill.addEventListener('click', () => {
-        document.querySelectorAll('.chan-pill').forEach(p => p.classList.remove('active'));
-        pill.classList.add('active');
-        state.activeChannel = parseInt(pill.dataset.ch) || 1;
-        renderChannelControls();
-        renderMeasurementsGrid();
-      });
-    });
-
-    document.getElementById('chkChannelEnable').addEventListener('change', (e) => {
-      state.channels[state.activeChannel].enabled = e.target.checked;
-      updateHUD();
-    });
-
-    document.getElementById('btnVoltUp').addEventListener('click', () => stepVoltDiv(1));
-    document.getElementById('btnVoltDown').addEventListener('click', () => stepVoltDiv(-1));
-    document.getElementById('selCoupling').addEventListener('change', (e) => {
-      state.channels[state.activeChannel].coupling = e.target.value;
-      updateHUD();
-    });
-    document.getElementById('rngVertOffset').addEventListener('input', (e) => {
-      state.channels[state.activeChannel].offset = parseFloat(e.target.value);
-      document.getElementById('lblVertOffset').textContent = `${parseFloat(e.target.value).toFixed(2)} div`;
-    });
-    document.getElementById('selProbe').addEventListener('change', (e) => {
-      state.channels[state.activeChannel].probe = parseInt(e.target.value);
-    });
-    document.getElementById('selBwLimit').addEventListener('change', (e) => {
-      state.channels[state.activeChannel].bwLimit = e.target.value;
-    });
-
-    document.getElementById('btnTimeUp').addEventListener('click', () => stepTimebase(1));
-    document.getElementById('btnTimeDown').addEventListener('click', () => stepTimebase(-1));
-    document.getElementById('rngHorizPos').addEventListener('input', (e) => {
-      state.horizPos = parseFloat(e.target.value);
-      document.getElementById('lblHorizPos').textContent = `${parseFloat(e.target.value).toFixed(2)} s`;
-      updateHUD();
-    });
-    document.getElementById('selAcqMode').addEventListener('change', (e) => {
-      state.acqMode = e.target.value;
-    });
-
-    document.getElementById('selTrigSource').addEventListener('change', (e) => {
-      state.trigger.source = e.target.value;
-      updateHUD();
-    });
-    document.getElementById('selTrigMode').addEventListener('change', (e) => {
-      state.trigger.mode = e.target.value;
-    });
-    document.getElementById('selTrigSlope').addEventListener('change', (e) => {
-      state.trigger.slope = e.target.value;
-      updateHUD();
-    });
-    document.getElementById('rngTrigLevel').addEventListener('input', (e) => {
-      const v = parseFloat(e.target.value);
-      state.trigger.level = v;
-      document.getElementById('lblTrigLevel').textContent = `${v >= 0 ? '+' : ''}${v.toFixed(2)} V`;
-      updateHUD();
-    });
-    document.getElementById('btnTrig50').addEventListener('click', () => {
-      state.trigger.level = 0.0;
-      document.getElementById('rngTrigLevel').value = 0.0;
-      document.getElementById('lblTrigLevel').textContent = '+0.00 V';
-      updateHUD();
-    });
-
-    document.getElementById('selSimSignal').addEventListener('change', (e) => {
-      state.simSignal = e.target.value;
-    });
-    document.getElementById('btnResetScope').addEventListener('click', resetScopeDefaults);
-
-    document.querySelectorAll('.dock-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.dock-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const target = tab.dataset.tab;
-        document.querySelectorAll('.dock-content').forEach(c => c.style.display = 'none');
-        document.getElementById(`tabContent-${target}`).style.display = 'block';
-      });
-    });
-
-    document.getElementById('chkShowCursors').addEventListener('change', (e) => {
-      state.cursors.enabled = e.target.checked;
-    });
-    document.getElementById('chkMathTrace').addEventListener('change', (e) => {
-      state.math.enabled = e.target.checked;
-    });
-
-    document.getElementById('btnSendScpi').addEventListener('click', sendScpiFromInput);
-    document.getElementById('scpiCmdInput').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') sendScpiFromInput();
-    });
-  }
-
-  function renderChannelControls() {
-    const ch = state.channels[state.activeChannel];
-    document.getElementById('currentChLabel').textContent = `Channel ${state.activeChannel} Active`;
-    document.getElementById('chkChannelEnable').checked = ch.enabled;
-    document.getElementById('valVoltDiv').textContent = VOLT_SCALES[ch.voltIdx].label;
-    document.getElementById('selCoupling').value = ch.coupling;
-    document.getElementById('rngVertOffset').value = ch.offset;
-    document.getElementById('lblVertOffset').textContent = `${ch.offset.toFixed(2)} div`;
-    document.getElementById('selProbe').value = ch.probe;
-    document.getElementById('selBwLimit').value = ch.bwLimit;
-    updateHUD();
-  }
-
-  function stepVoltDiv(delta) {
-    const ch = state.channels[state.activeChannel];
-    const newIdx = Math.max(0, Math.min(VOLT_SCALES.length - 1, ch.voltIdx + delta));
-    ch.voltIdx = newIdx;
-    document.getElementById('valVoltDiv').textContent = VOLT_SCALES[newIdx].label;
-    updateHUD();
-    sendHardwareCommand(`:CHAN${state.activeChannel}:SCAL ${VOLT_SCALES[newIdx].val}`);
-  }
-
-  function stepTimebase(delta) {
-    const newIdx = Math.max(0, Math.min(TIMEBASE_SCALES.length - 1, state.timebaseIdx + delta));
-    state.timebaseIdx = newIdx;
-    document.getElementById('valTimeDiv').textContent = TIMEBASE_SCALES[newIdx].label;
-    updateHUD();
-    sendHardwareCommand(`:TIM:SCAL ${TIMEBASE_SCALES[newIdx].val}`);
-  }
-
-  function updateHUD() {
-    document.getElementById('hudTimebase').textContent = `${TIMEBASE_SCALES[state.timebaseIdx].label}/div`;
-    document.getElementById('hudTimePos').textContent = `${state.horizPos.toFixed(2)} s`;
-
-    const ch1 = state.channels[1];
-    document.getElementById('hudCh1').textContent = ch1.enabled ? `${VOLT_SCALES[ch1.voltIdx].label}/div (${ch1.coupling})` : 'OFF';
-
-    const ch2 = state.channels[2];
-    document.getElementById('hudCh2').textContent = ch2.enabled ? `${VOLT_SCALES[ch2.voltIdx].label}/div (${ch2.coupling})` : 'OFF';
-
-    const trigSlopeIcon = state.trigger.slope === 'RISING' ? '↗' : (state.trigger.slope === 'FALLING' ? '↘' : '↕');
-    document.getElementById('hudTrigger').textContent = `${state.trigger.source} ${state.trigger.level.toFixed(2)}V ${trigSlopeIcon}`;
-  }
-
-  function toggleRunStop() {
-    state.running = !state.running;
-    const badge = document.getElementById('runBadge');
-    const label = document.getElementById('runStopLabel');
-
-    if (state.running) {
-      badge.className = 'run-badge running';
-      badge.textContent = 'RUNNING';
-      label.textContent = 'STOP';
-      sendHardwareCommand(':RUN');
-    } else {
-      badge.className = 'run-badge stopped';
-      badge.textContent = 'STOP';
-      label.textContent = 'RUN';
-      sendHardwareCommand(':STOP');
-    }
-  }
-
-  function triggerSingleShot() {
-    state.running = true;
-    state.singleArm = true;
-    state.trigger.mode = 'SINGLE';
-    document.getElementById('selTrigMode').value = 'SINGLE';
-    document.getElementById('runBadge').className = 'run-badge auto';
-    document.getElementById('runBadge').textContent = 'SINGLE ARM';
-    sendHardwareCommand(':SING');
-  }
-
-  function autoSetupScope() {
-    logScpi('TX', ':AUTOSet');
-    state.timebaseIdx = 16;
-    state.channels[1].enabled = true;
-    state.channels[1].voltIdx = 8;
-    state.channels[1].offset = 0;
-    state.trigger.level = 0.5;
-    state.running = true;
-    renderChannelControls();
-    document.getElementById('runBadge').className = 'run-badge running';
-    document.getElementById('runBadge').textContent = 'RUNNING';
-    logScpi('RX', 'Auto setup completed.');
-  }
-
-  function resetScopeDefaults() {
-    logScpi('TX', '*RST');
-    state.timebaseIdx = 16;
-    state.channels[1].voltIdx = 8;
-    state.channels[2].voltIdx = 9;
-    state.channels[1].offset = 0;
-    state.channels[2].offset = -1.5;
-    state.trigger.level = 0.5;
-    renderChannelControls();
-    logScpi('RX', 'Oscilloscope reset to factory defaults.');
-  }
-
-  async function captureScreenshot() {
-    const dataUrl = scopeCanvas.toDataURL('image/png');
-    const defaultName = `tenma_scope_${Date.now()}.png`;
-
-    if (window.electronAPI && window.electronAPI.saveImage) {
-      const res = await window.electronAPI.saveImage(dataUrl, defaultName);
-      if (res && res.success) {
-        logScpi('SYS', `Screenshot saved: ${res.filePath}`);
-      }
-    } else {
-      const link = document.createElement('a');
-      link.download = defaultName;
-      link.href = dataUrl;
-      link.click();
-      logScpi('SYS', 'Screenshot downloaded.');
-    }
-  }
-
-  async function exportCSV() {
-    let csv = 'Time(s),CH1(V),CH2(V),MATH(V)\n';
-    const numPoints = state.waveforms.ch1.length;
-    const timeScale = TIMEBASE_SCALES[state.timebaseIdx].val;
-    const dt = (timeScale * 10) / numPoints;
-
-    for (let i = 0; i < numPoints; i++) {
-      const t = (i * dt).toExponential(6);
-      const c1 = state.waveforms.ch1[i].toFixed(4);
-      const c2 = state.waveforms.ch2[i].toFixed(4);
-      const m = state.waveforms.math[i].toFixed(4);
-      csv += `${t},${c1},${c2},${m}\n`;
-    }
-
-    const defaultName = `tenma_waveform_${Date.now()}.csv`;
-
-    if (window.electronAPI && window.electronAPI.saveCSV) {
-      const res = await window.electronAPI.saveCSV(csv, defaultName);
-      if (res && res.success) {
-        logScpi('SYS', `Waveform CSV saved: ${res.filePath}`);
-      }
-    } else {
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const link = document.createElement('a');
-      link.download = defaultName;
-      link.href = URL.createObjectURL(blob);
-      link.click();
-      logScpi('SYS', 'Waveform CSV downloaded.');
-    }
-  }
-
-  // --- Hardware Connectivity: Direct COM Port Selection ---
-  async function connectDirectSerial() {
-    const portSel = document.getElementById('selComPort');
-    const manualInput = document.getElementById('txtManualPort');
-    let port = manualInput && manualInput.value.trim() ? manualInput.value.trim() : (portSel ? portSel.value : '');
-    
-    // Auto format e.g. "3" -> "COM3"
+    const manual = document.getElementById('txtManualPort').value.trim();
+    const selected = document.getElementById('selComPort').value;
+    let port = manual || selected;
     if (/^\d+$/.test(port)) port = `COM${port}`;
     port = port.toUpperCase();
 
-    const baudSel = document.getElementById('selBaudRate');
-    const baudRate = baudSel ? parseInt(baudSel.value) : 115200;
+    const baudRate = parseInt(document.getElementById('selBaudRate').value, 10) || 115200;
+    state.acq.pollIntervalMs = parseInt(document.getElementById('selPollRate').value, 10);
 
     if (!port) {
-      logScpi('ERR', 'No COM port selected. Please pick a port from the list or enter COM number.');
+      errBox.textContent = 'Select a detected COM port or enter a manual port (e.g. COM3).';
+      errBox.style.display = 'block';
       return;
     }
 
-    logScpi('SYS', `Opening ${port} @ ${baudRate} baud...`);
+    logScpi('SYS', `Opening ${port} at ${baudRate} bps (8N1)...`);
 
     if (window.electronAPI && window.electronAPI.serialConnect) {
       try {
         const res = await window.electronAPI.serialConnect(port, baudRate);
         if (res && res.success) {
-          state.activePort = port;
-          setConnectionMode('serial', `${port} (${baudRate})`);
-          document.getElementById('connModal').classList.remove('active');
-          logScpi('RX', `Successfully connected to ${port} @ ${baudRate}.`);
-          queryScopeIdentity();
+          onConnected('serial', `${port} · ${baudRate}`);
+          document.getElementById('connModal').classList.remove('open');
+          sendScpi('*IDN?', true);
         } else {
-          logScpi('ERR', `Could not open ${port}: ${res ? res.error : 'Access error or device powered off'}`);
+          const msg = res && res.error ? res.error : `Failed to open ${port}. Ensure oscilloscope is powered on and port is free.`;
+          errBox.textContent = msg;
+          errBox.style.display = 'block';
+          logScpi('ERR', msg);
         }
       } catch (err) {
-        logScpi('ERR', `Serial error: ${err.message}`);
+        errBox.textContent = err.message;
+        errBox.style.display = 'block';
+        logScpi('ERR', `Serial open error: ${err.message}`);
       }
     }
   }
 
-  async function connectWebUSB() {
+  async function connectDirectUsb() {
+    const errBox = document.getElementById('connErrorMsg');
+    errBox.style.display = 'none';
+
+    if (!navigator.usb) {
+      logScpi('ERR', 'WebUSB API unavailable in this runtime.');
+      return;
+    }
+
     try {
-      logScpi('SYS', 'Requesting USB device link (USBTMC / Tenma)...');
+      logScpi('SYS', 'Scanning Direct USB / USBTMC endpoints...');
       const device = await navigator.usb.requestDevice({
         filters: [
           { vendorId: 0x5656 },
           { vendorId: 0x4348 },
           { vendorId: 0x0483 },
-          { vendorId: 0x1a86 }
+          { vendorId: 0x1a86 },
+          { vendorId: 0x10c4 },
+          { vendorId: 0x0403 }
         ]
       });
 
-      if (device) {
-        await device.open();
+      await device.open();
+      if (device.configuration === null) {
         await device.selectConfiguration(1);
-        await device.claimInterface(0);
-        usbDevice = device;
-        setConnectionMode('webusb', `${device.productName || 'Tenma 8737 Scope'}`);
-        document.getElementById('connModal').classList.remove('active');
-        logScpi('RX', `Connected to hardware USB device: ${device.productName || 'Tenma 8737'}`);
-        queryScopeIdentity();
       }
+      await device.claimInterface(0);
+      usbDevice = device;
+
+      const label = device.productName || `USB ${device.vendorId.toString(16).toUpperCase()}:${device.productId.toString(16).toUpperCase()}`;
+      onConnected('usb', label);
+      document.getElementById('connModal').classList.remove('open');
+      sendScpi('*IDN?', true);
     } catch (err) {
-      logScpi('ERR', `WebUSB connection error: ${err.message}`);
+      logScpi('ERR', `Direct USB link failed: ${err.message}`);
+      errBox.textContent = `Direct USB failed: ${err.message}`;
+      errBox.style.display = 'block';
     }
   }
 
-  function setConnectionMode(mode, label) {
-    state.connType = mode;
-    state.connected = mode !== 'sim';
-    const dot = document.getElementById('statusDot');
-    const txt = document.getElementById('statusText');
+  function onConnected(type, label) {
+    state.connected = true;
+    state.connType = type;
+    state.portLabel = label;
+    state.running = true;
+    state.trigger.status = 'RUN';
+    syncConnectionUI();
+    syncAcquisitionUI();
+    startPolling();
+    logScpi('SYS', `Connected via ${type.toUpperCase()} (${label}).`);
+  }
 
-    if (mode === 'sim') {
-      dot.className = 'status-dot sim';
-      txt.textContent = 'SIMULATION READY';
-    } else {
-      dot.className = 'status-dot online';
-      txt.textContent = label || 'ONLINE (WIRED USB)';
+  async function disconnectHardware() {
+    stopPolling();
+    if (state.connType === 'serial' && window.electronAPI && window.electronAPI.serialDisconnect) {
+      await window.electronAPI.serialDisconnect();
+    }
+    if (usbDevice) {
+      try { await usbDevice.close(); } catch (e) {}
+      usbDevice = null;
+    }
+    state.connected = false;
+    state.connType = null;
+    state.portLabel = '';
+    state.idn = '';
+    state.running = false;
+    state.singleArmed = false;
+    state.trigger.status = 'OFFLINE';
+    syncConnectionUI();
+    syncAcquisitionUI();
+    drawScope();
+    logScpi('SYS', 'Instrument disconnected.');
+  }
+
+  // ============================================================
+  // SERIAL / USB PROTOCOL & WAVEFORM PARSING
+  // ============================================================
+  function bindSerialListeners() {
+    if (!window.electronAPI) return;
+    if (window.electronAPI.onSerialData) {
+      window.electronAPI.onSerialData((payload) => {
+        flashLed('ledRx', 'rx-flash');
+        handleIncomingPayload(payload);
+      });
+    }
+    if (window.electronAPI.onSerialDisconnected) {
+      window.electronAPI.onSerialDisconnected(() => {
+        if (state.connected && state.connType === 'serial') {
+          disconnectHardware();
+        }
+      });
     }
   }
 
-  function sendHardwareCommand(cmd) {
+  async function sendScpi(cmd, verbose = false) {
+    document.getElementById('statusLastCmd').textContent = cmd;
+    if (!state.connected) {
+      if (verbose) logScpi('ERR', `Not connected — command not sent: ${cmd}`);
+      return;
+    }
+
+    flashLed('ledTx', 'tx-flash');
+    if (verbose || !cmd.startsWith(':WAV:')) {
+      logScpi('TX', cmd);
+    }
+
     if (state.connType === 'serial' && window.electronAPI && window.electronAPI.serialSend) {
-      window.electronAPI.serialSend(cmd);
-    }
-  }
-
-  function queryScopeIdentity() {
-    logScpi('TX', '*IDN?');
-    sendHardwareCommand('*IDN?');
-    setTimeout(() => {
-      if (state.connType === 'sim') {
-        logScpi('RX', 'TENMA,72-8737,SN-8737-2026,V2.04 (4-CH 200MHz DSO)');
+      await window.electronAPI.serialSend(cmd);
+    } else if (state.connType === 'usb' && usbDevice) {
+      try {
+        const enc = new TextEncoder().encode(cmd + '\n');
+        const iface = usbDevice.configuration.interfaces[0].alternate;
+        const outEp = iface.endpoints.find(ep => ep.direction === 'out');
+        const inEp = iface.endpoints.find(ep => ep.direction === 'in');
+        if (outEp) {
+          await usbDevice.transferOut(outEp.endpointNumber, enc);
+        }
+        if (cmd.endsWith('?') && inEp) {
+          const res = await usbDevice.transferIn(inEp.endpointNumber, 16384);
+          if (res && res.data && res.data.byteLength > 0) {
+            flashLed('ledRx', 'rx-flash');
+            const text = new TextDecoder().decode(res.data);
+            handleIncomingPayload(text, new Uint8Array(res.data.buffer));
+          }
+        }
+      } catch (err) {
+        logScpi('ERR', `USB I/O error: ${err.message}`);
       }
-    }, 200);
-  }
-
-  function sendScpiFromInput() {
-    const input = document.getElementById('scpiCmdInput');
-    const cmd = input.value.trim();
-    if (!cmd) return;
-    input.value = '';
-
-    logScpi('TX', cmd);
-    executeScpiCommand(cmd);
-  }
-
-  function executeScpiCommand(cmd) {
-    const upper = cmd.toUpperCase();
-
-    if (upper === '*IDN?') {
-      setTimeout(() => logScpi('RX', 'TENMA,72-8737,SN-8737-2026,V2.04'), 60);
-    } else if (upper === '*RST') {
-      resetScopeDefaults();
-    } else if (upper === ':RUN' || upper === 'RUN') {
-      if (!state.running) toggleRunStop();
-      logScpi('RX', 'OK');
-    } else if (upper === ':STOP' || upper === 'STOP') {
-      if (state.running) toggleRunStop();
-      logScpi('RX', 'OK');
-    } else if (upper === ':AUTOS' || upper === ':AUTOS?' || upper === ':AUTOSet') {
-      autoSetupScope();
-    } else if (upper.startsWith(':MEAS:VOLT?')) {
-      setTimeout(() => logScpi('RX', state.measurements.vpp || '2.50V'), 60);
-    } else if (upper.startsWith(':MEAS:FREQ?')) {
-      setTimeout(() => logScpi('RX', state.measurements.freq || '1.000kHz'), 60);
-    } else if (upper === ':TRIG:STAT?') {
-      setTimeout(() => logScpi('RX', state.trigger.status), 50);
-    } else {
-      sendHardwareCommand(cmd);
-      setTimeout(() => logScpi('RX', 'OK'), 80);
     }
   }
 
-  function logScpi(type, msg) {
-    const logBox = document.getElementById('scpiLog');
-    if (!logBox) return;
+  function handleIncomingPayload(text, rawBytes = null) {
+    if (!text) return;
+    const trimmed = text.trim();
 
-    const time = new Date().toTimeString().split(' ')[0];
-    const entry = document.createElement('div');
-    entry.className = 'log-entry';
+    // Detect *IDN? response (comma-separated manufacturer,model,serial,firmware)
+    if (!trimmed.startsWith('#') && /^[A-Za-z0-9\-_\s]+,[^,]+,[^,]+/.test(trimmed)) {
+      state.idn = trimmed;
+      document.getElementById('idnReadout').textContent = trimmed;
+      logScpi('RX', trimmed);
+      return;
+    }
 
-    let colorClass = 'log-tx';
-    if (type === 'RX') colorClass = 'log-rx';
-    if (type === 'ERR') colorClass = 'log-err';
-    if (type === 'SYS') colorClass = 'log-time';
+    // Attempt IEEE 488.2 binary waveform block parsing (#<n><length><data>)
+    if (trimmed.startsWith('#') && trimmed.length > 4) {
+      const nDigits = parseInt(trimmed[1], 10);
+      if (!isNaN(nDigits) && nDigits > 0 && nDigits < 9) {
+        const byteCount = parseInt(trimmed.slice(2, 2 + nDigits), 10);
+        const targetCh = pendingWaveChannel || state.activeChannel;
+        const vScale = currentVScale(targetCh);
+        const dataOffset = 2 + nDigits;
+        const samples = new Float32Array(Math.min(byteCount, 8192));
 
-    entry.innerHTML = `
-      <span class="log-time">[${time}]</span>
-      <span class="${colorClass}">${type}:</span>
-      <span>${escapeHtml(msg)}</span>
-    `;
+        if (rawBytes && rawBytes.length >= dataOffset + samples.length) {
+          for (let i = 0; i < samples.length; i++) {
+            const raw = rawBytes[dataOffset + i];
+            samples[i] = ((raw - 128) / 25.0) * vScale;
+          }
+        } else {
+          for (let i = 0; i < samples.length; i++) {
+            const code = trimmed.charCodeAt(dataOffset + i) & 0xff;
+            samples[i] = ((code - 128) / 25.0) * vScale;
+          }
+        }
+        ingestWaveform(targetCh, samples);
+        return;
+      }
+    }
 
-    logBox.appendChild(entry);
-    logBox.scrollTop = logBox.scrollHeight;
+    // Attempt comma-separated ASCII waveform points (at least 16 numeric samples)
+    if (trimmed.includes(',')) {
+      const parts = trimmed.split(',');
+      if (parts.length >= 16 && !isNaN(parseFloat(parts[0]))) {
+        const targetCh = pendingWaveChannel || state.activeChannel;
+        const samples = new Float32Array(parts.length);
+        for (let i = 0; i < parts.length; i++) {
+          const val = parseFloat(parts[i]);
+          samples[i] = isNaN(val) ? 0 : val;
+        }
+        ingestWaveform(targetCh, samples);
+        return;
+      }
+    }
+
+    logScpi('RX', trimmed);
   }
 
-  function formatTime(s) {
-    if (s >= 1) return `${s.toFixed(2)} s`;
-    if (s >= 1e-3) return `${(s * 1e3).toFixed(2)} ms`;
-    if (s >= 1e-6) return `${(s * 1e6).toFixed(2)} μs`;
-    return `${(s * 1e9).toFixed(2)} ns`;
+  function ingestWaveform(chNum, samples) {
+    state.waveforms[chNum] = samples;
+    const totalTime = currentTScale() * 10;
+    state.acq.sampleRate = samples.length / totalTime;
+    if (state.singleArmed) {
+      state.singleArmed = false;
+      state.trigger.status = 'STOP';
+      syncAcquisitionUI();
+    } else if (state.running) {
+      state.trigger.status = "TRIG'D";
+      syncAcquisitionUI();
+    }
+    syncHorizontalUI();
+    renderMeasurements();
+    drawScope();
+    drawFFT();
   }
 
-  function formatFrequency(hz) {
-    if (hz >= 1e6) return `${(hz / 1e6).toFixed(3)} MHz`;
-    if (hz >= 1e3) return `${(hz / 1e3).toFixed(3)} kHz`;
-    return `${hz.toFixed(2)} Hz`;
+  function startPolling() {
+    stopPolling();
+    if (state.acq.pollIntervalMs <= 0) return;
+    pollTimer = setInterval(() => {
+      if (!state.connected || !state.running) return;
+      requestNextEnabledChannel();
+    }, state.acq.pollIntervalMs);
+  }
+
+  function stopPolling() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function requestActiveWaveforms() {
+    for (let ch = 1; ch <= 4; ch++) {
+      if (state.channels[ch].enabled) {
+        pendingWaveChannel = ch;
+        sendScpi(`:WAV:SOUR CHAN${ch}`);
+        sendScpi(':WAV:DATA?');
+        break;
+      }
+    }
+  }
+
+  function requestNextEnabledChannel() {
+    for (let i = 0; i < 4; i++) {
+      const ch = ((pollChannelCursor - 1 + i) % 4) + 1;
+      if (state.channels[ch].enabled) {
+        pollChannelCursor = (ch % 4) + 1;
+        pendingWaveChannel = ch;
+        sendScpi(`:WAV:SOUR CHAN${ch}`);
+        sendScpi(':WAV:DATA?');
+        return;
+      }
+    }
+  }
+
+  // ============================================================
+  // OSCILLOSCOPE GRATICULE & TRACE RENDERING
+  // ============================================================
+  function drawScope() {
+    const dpr = window.devicePixelRatio || 1;
+    const width = scopeCanvas.width / dpr;
+    const height = scopeCanvas.height / dpr;
+    if (width <= 0 || height <= 0) return;
+
+    const padL = 28;
+    const padR = 26;
+    const padT = 18;
+    const padB = 14;
+    const gx = padL;
+    const gy = padT;
+    const gw = Math.max(40, width - padL - padR);
+    const gh = Math.max(40, height - padT - padB);
+    graticuleRect = { x: gx, y: gy, w: gw, h: gh };
+
+    // Background
+    scopeCtx.fillStyle = '#111215';
+    scopeCtx.fillRect(0, 0, width, height);
+
+    // Graticule frame fill
+    scopeCtx.fillStyle = '#131418';
+    scopeCtx.fillRect(gx, gy, gw, gh);
+
+    const alpha = state.acq.gridAlpha;
+
+    // Major divisions (10 horizontal x 8 vertical)
+    scopeCtx.strokeStyle = `rgba(110, 114, 128, ${0.28 * alpha})`;
+    scopeCtx.lineWidth = 1;
+    scopeCtx.beginPath();
+    for (let i = 1; i < 10; i++) {
+      const x = Math.round(gx + (gw * i) / 10) + 0.5;
+      scopeCtx.moveTo(x, gy);
+      scopeCtx.lineTo(x, gy + gh);
+    }
+    for (let j = 1; j < 8; j++) {
+      const y = Math.round(gy + (gh * j) / 8) + 0.5;
+      scopeCtx.moveTo(gx, y);
+      scopeCtx.lineTo(gx + gw, y);
+    }
+    scopeCtx.stroke();
+
+    // Center crosshairs with 5 sub-ticks per division (real DSO graticule)
+    const cx = Math.round(gx + gw / 2) + 0.5;
+    const cy = Math.round(gy + gh / 2) + 0.5;
+    scopeCtx.strokeStyle = `rgba(145, 150, 165, ${0.48 * alpha})`;
+    scopeCtx.beginPath();
+    scopeCtx.moveTo(gx, cy);
+    scopeCtx.lineTo(gx + gw, cy);
+    scopeCtx.moveTo(cx, gy);
+    scopeCtx.lineTo(cx, gy + gh);
+
+    for (let i = 0; i <= 50; i++) {
+      const x = gx + (gw * i) / 50;
+      const tick = i % 5 === 0 ? 4 : 2.5;
+      scopeCtx.moveTo(x, cy - tick);
+      scopeCtx.lineTo(x, cy + tick);
+    }
+    for (let j = 0; j <= 40; j++) {
+      const y = gy + (gh * j) / 40;
+      const tick = j % 5 === 0 ? 4 : 2.5;
+      scopeCtx.moveTo(cx - tick, y);
+      scopeCtx.lineTo(cx + tick, y);
+    }
+    scopeCtx.stroke();
+
+    // Outer graticule border
+    scopeCtx.strokeStyle = '#2d2f36';
+    scopeCtx.lineWidth = 1;
+    scopeCtx.strokeRect(gx + 0.5, gy + 0.5, gw - 1, gh - 1);
+
+    // Clip trace rendering strictly to graticule interior
+    scopeCtx.save();
+    scopeCtx.beginPath();
+    scopeCtx.rect(gx + 1, gy + 1, gw - 2, gh - 2);
+    scopeCtx.clip();
+
+    // Render acquired hardware traces
+    if (state.horiz.format === 'XY') {
+      drawXYTrace(gx, gy, gw, gh);
+    } else {
+      for (let chNum = 1; chNum <= 4; chNum++) {
+        const ch = state.channels[chNum];
+        if (!ch.enabled) continue;
+        const samples = state.waveforms[chNum];
+        if (samples && samples.length > 0) {
+          drawChannelWaveform(chNum, samples, gx, gy, gw, gh);
+        }
+      }
+      if (state.math.enabled) {
+        drawMathWaveform(gx, gy, gw, gh);
+      }
+    }
+
+    // Trigger level reference line (subtle dashed line while dragging or connected)
+    const trigY = getTriggerY(gy, gh);
+    if (dragTarget && dragTarget.type === 'trig') {
+      scopeCtx.strokeStyle = 'rgba(249, 115, 22, 0.75)';
+      scopeCtx.setLineDash([4, 4]);
+      scopeCtx.beginPath();
+      scopeCtx.moveTo(gx, trigY);
+      scopeCtx.lineTo(gx + gw, trigY);
+      scopeCtx.stroke();
+      scopeCtx.setLineDash([]);
+    }
+
+    // Cursors overlay
+    drawCursors(gx, gy, gw, gh);
+
+    scopeCtx.restore();
+
+    // Margin markers: Channel Ground Tags (left)
+    for (let chNum = 1; chNum <= 4; chNum++) {
+      const ch = state.channels[chNum];
+      if (!ch.enabled) continue;
+      const y = clamp(gy + gh / 2 - (ch.offset * gh) / 8, gy + 6, gy + gh - 6);
+      drawLeftFlag(gx, y, String(chNum), CH_COLORS[chNum], chNum === state.activeChannel);
+    }
+
+    // Margin marker: Trigger Level Tag (right)
+    drawRightFlag(gx + gw, clamp(trigY, gy + 6, gy + gh - 6), 'T', '#f97316');
+
+    // Margin marker: Horizontal Trigger Position (top)
+    const hPosX = clamp(gx + gw / 2 + (state.horiz.posDiv * gw) / 10, gx + 6, gx + gw - 6);
+    drawTopMarker(hPosX, gy, '#f97316');
+  }
+
+  function drawChannelWaveform(chNum, samples, gx, gy, gw, gh) {
+    const ch = state.channels[chNum];
+    const vScale = currentVScale(chNum);
+    const pxPerDivY = gh / 8;
+    const baseY = gy + gh / 2 - ch.offset * pxPerDivY;
+    const sign = ch.invert ? -1 : 1;
+
+    scopeCtx.strokeStyle = CH_COLORS[chNum];
+    scopeCtx.fillStyle = CH_COLORS[chNum];
+    scopeCtx.lineWidth = 1.5;
+
+    const len = samples.length;
+    if (state.acq.traceType === 'dots') {
+      const step = Math.max(1, Math.floor(len / gw));
+      for (let i = 0; i < len; i += step) {
+        const x = gx + (i / (len - 1 || 1)) * gw;
+        const y = baseY - (sign * samples[i] / vScale) * pxPerDivY;
+        scopeCtx.fillRect(x - 0.75, y - 0.75, 1.5, 1.5);
+      }
+    } else {
+      scopeCtx.beginPath();
+      for (let i = 0; i < len; i++) {
+        const x = gx + (i / (len - 1 || 1)) * gw;
+        const y = baseY - (sign * samples[i] / vScale) * pxPerDivY;
+        if (i === 0) scopeCtx.moveTo(x, y);
+        else scopeCtx.lineTo(x, y);
+      }
+      scopeCtx.stroke();
+    }
+  }
+
+  function drawMathWaveform(gx, gy, gw, gh) {
+    const s1 = state.waveforms[1];
+    const s2 = state.waveforms[2];
+    if (!s1 || !s2) return;
+    const len = Math.min(s1.length, s2.length);
+    if (len === 0) return;
+
+    const vScale = currentVScale(1);
+    const pxPerDivY = gh / 8;
+    const baseY = gy + gh / 2;
+
+    scopeCtx.strokeStyle = CH_COLORS.M;
+    scopeCtx.lineWidth = 1.3;
+    scopeCtx.beginPath();
+    for (let i = 0; i < len; i++) {
+      let val = 0;
+      if (state.math.op === 'sub') val = s1[i] - s2[i];
+      else if (state.math.op === 'add') val = s1[i] + s2[i];
+      else if (state.math.op === 'mul') val = s1[i] * s2[i];
+      const x = gx + (i / (len - 1 || 1)) * gw;
+      const y = baseY - (val / vScale) * pxPerDivY;
+      if (i === 0) scopeCtx.moveTo(x, y);
+      else scopeCtx.lineTo(x, y);
+    }
+    scopeCtx.stroke();
+  }
+
+  function drawXYTrace(gx, gy, gw, gh) {
+    const sx = state.waveforms[1];
+    const sy = state.waveforms[2];
+    if (!sx || !sy) return;
+    const len = Math.min(sx.length, sy.length);
+    const vx = currentVScale(1);
+    const vy = currentVScale(2);
+
+    scopeCtx.strokeStyle = CH_COLORS[1];
+    scopeCtx.lineWidth = 1.4;
+    scopeCtx.beginPath();
+    for (let i = 0; i < len; i++) {
+      const x = gx + gw / 2 + (sx[i] / vx) * (gw / 10);
+      const y = gy + gh / 2 - (sy[i] / vy) * (gh / 8);
+      if (i === 0) scopeCtx.moveTo(x, y);
+      else scopeCtx.lineTo(x, y);
+    }
+    scopeCtx.stroke();
+  }
+
+  function drawCursors(gx, gy, gw, gh) {
+    const mode = state.cursors.mode;
+    if (mode === 'off') return;
+
+    scopeCtx.lineWidth = 1;
+    scopeCtx.font = '600 10px "JetBrains Mono", monospace';
+
+    if (mode === 'x' || mode === 'xy') {
+      const x1 = Math.round(gx + state.cursors.x1 * gw) + 0.5;
+      const x2 = Math.round(gx + state.cursors.x2 * gw) + 0.5;
+      scopeCtx.strokeStyle = 'rgba(236, 236, 239, 0.75)';
+      scopeCtx.setLineDash([4, 3]);
+      scopeCtx.beginPath();
+      scopeCtx.moveTo(x1, gy); scopeCtx.lineTo(x1, gy + gh);
+      scopeCtx.moveTo(x2, gy); scopeCtx.lineTo(x2, gy + gh);
+      scopeCtx.stroke();
+      scopeCtx.setLineDash([]);
+
+      scopeCtx.fillStyle = '#ececef';
+      scopeCtx.fillText('X1', x1 + 4, gy + 12);
+      scopeCtx.fillText('X2', x2 + 4, gy + 12);
+    }
+
+    if (mode === 'y' || mode === 'xy') {
+      const y1 = Math.round(gy + state.cursors.y1 * gh) + 0.5;
+      const y2 = Math.round(gy + state.cursors.y2 * gh) + 0.5;
+      scopeCtx.strokeStyle = 'rgba(45, 156, 219, 0.8)';
+      scopeCtx.setLineDash([4, 3]);
+      scopeCtx.beginPath();
+      scopeCtx.moveTo(gx, y1); scopeCtx.lineTo(gx + gw, y1);
+      scopeCtx.moveTo(gx, y2); scopeCtx.lineTo(gx + gw, y2);
+      scopeCtx.stroke();
+      scopeCtx.setLineDash([]);
+
+      scopeCtx.fillStyle = '#2d9cdb';
+      scopeCtx.fillText('Y1', gx + 5, y1 - 4);
+      scopeCtx.fillText('Y2', gx + 5, y2 - 4);
+    }
+  }
+
+  function drawLeftFlag(xRight, y, label, color, isActive) {
+    const w = 18, h = 13;
+    scopeCtx.fillStyle = color;
+    scopeCtx.beginPath();
+    scopeCtx.moveTo(xRight - 1, y);
+    scopeCtx.lineTo(xRight - 6, y - h / 2);
+    scopeCtx.lineTo(xRight - w - 4, y - h / 2);
+    scopeCtx.lineTo(xRight - w - 4, y + h / 2);
+    scopeCtx.lineTo(xRight - 6, y + h / 2);
+    scopeCtx.closePath();
+    scopeCtx.fill();
+
+    if (isActive) {
+      scopeCtx.strokeStyle = '#ffffff';
+      scopeCtx.lineWidth = 1;
+      scopeCtx.stroke();
+    }
+
+    scopeCtx.fillStyle = '#111215';
+    scopeCtx.font = '700 9.5px "JetBrains Mono", monospace';
+    scopeCtx.textAlign = 'center';
+    scopeCtx.textBaseline = 'middle';
+    scopeCtx.fillText(label, xRight - 13, y + 0.5);
+    scopeCtx.textAlign = 'left';
+    scopeCtx.textBaseline = 'alphabetic';
+  }
+
+  function drawRightFlag(xLeft, y, label, color) {
+    const w = 17, h = 13;
+    scopeCtx.fillStyle = color;
+    scopeCtx.beginPath();
+    scopeCtx.moveTo(xLeft + 1, y);
+    scopeCtx.lineTo(xLeft + 6, y - h / 2);
+    scopeCtx.lineTo(xLeft + w + 3, y - h / 2);
+    scopeCtx.lineTo(xLeft + w + 3, y + h / 2);
+    scopeCtx.lineTo(xLeft + 6, y + h / 2);
+    scopeCtx.closePath();
+    scopeCtx.fill();
+
+    scopeCtx.fillStyle = '#111215';
+    scopeCtx.font = '700 9.5px "JetBrains Mono", monospace';
+    scopeCtx.textAlign = 'center';
+    scopeCtx.textBaseline = 'middle';
+    scopeCtx.fillText(label, xLeft + 12, y + 0.5);
+    scopeCtx.textAlign = 'left';
+    scopeCtx.textBaseline = 'alphabetic';
+  }
+
+  function drawTopMarker(x, yBottom, color) {
+    scopeCtx.fillStyle = color;
+    scopeCtx.beginPath();
+    scopeCtx.moveTo(x, yBottom - 1);
+    scopeCtx.lineTo(x - 5, yBottom - 10);
+    scopeCtx.lineTo(x + 5, yBottom - 10);
+    scopeCtx.closePath();
+    scopeCtx.fill();
+  }
+
+  function getTriggerY(gy, gh) {
+    const srcNum = parseInt(state.trigger.source.replace('CHAN', ''), 10) || 1;
+    const ch = state.channels[srcNum] || state.channels[1];
+    const vScale = currentVScale(srcNum);
+    const pxPerDivY = gh / 8;
+    const zeroY = gy + gh / 2 - ch.offset * pxPerDivY;
+    return zeroY - (state.trigger.level / vScale) * pxPerDivY;
+  }
+
+  // ============================================================
+  // DIRECT CANVAS INTERACTION (DRAG MARKERS & CURSORS, WHEEL ZOOM)
+  // ============================================================
+  function bindCanvasInteractions() {
+    scopeCanvas.addEventListener('mousedown', (e) => {
+      const rect = scopeCanvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const { x: gx, y: gy, w: gw, h: gh } = graticuleRect;
+
+      // 1. Check left channel flags
+      if (mx <= gx + 4) {
+        for (let chNum = 1; chNum <= 4; chNum++) {
+          const ch = state.channels[chNum];
+          if (!ch.enabled) continue;
+          const cy = clamp(gy + gh / 2 - (ch.offset * gh) / 8, gy + 6, gy + gh - 6);
+          if (Math.abs(my - cy) <= 10) {
+            selectChannel(chNum);
+            dragTarget = { type: 'ch', ch: chNum };
+            return;
+          }
+        }
+      }
+
+      // 2. Check right trigger flag
+      if (mx >= gx + gw - 4) {
+        const ty = clamp(getTriggerY(gy, gh), gy + 6, gy + gh - 6);
+        if (Math.abs(my - ty) <= 12) {
+          dragTarget = { type: 'trig' };
+          drawScope();
+          return;
+        }
+      }
+
+      // 3. Check top horizontal trigger marker
+      if (my <= gy + 4) {
+        const hx = clamp(gx + gw / 2 + (state.horiz.posDiv * gw) / 10, gx + 6, gx + gw - 6);
+        if (Math.abs(mx - hx) <= 12) {
+          dragTarget = { type: 'hpos' };
+          return;
+        }
+      }
+
+      // 4. Check cursors
+      const cm = state.cursors.mode;
+      if (cm === 'x' || cm === 'xy') {
+        const x1 = gx + state.cursors.x1 * gw;
+        const x2 = gx + state.cursors.x2 * gw;
+        if (Math.abs(mx - x1) <= 8) { dragTarget = { type: 'x1' }; return; }
+        if (Math.abs(mx - x2) <= 8) { dragTarget = { type: 'x2' }; return; }
+      }
+      if (cm === 'y' || cm === 'xy') {
+        const y1 = gy + state.cursors.y1 * gh;
+        const y2 = gy + state.cursors.y2 * gh;
+        if (Math.abs(my - y1) <= 8) { dragTarget = { type: 'y1' }; return; }
+        if (Math.abs(my - y2) <= 8) { dragTarget = { type: 'y2' }; return; }
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!dragTarget) return;
+      const rect = scopeCanvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const { x: gx, y: gy, w: gw, h: gh } = graticuleRect;
+
+      if (dragTarget.type === 'ch') {
+        const ch = state.channels[dragTarget.ch];
+        ch.offset = clamp(((gy + gh / 2) - my) / (gh / 8), -4, 4);
+        syncVerticalUI();
+        drawScope();
+      } else if (dragTarget.type === 'trig') {
+        const srcNum = parseInt(state.trigger.source.replace('CHAN', ''), 10) || 1;
+        const ch = state.channels[srcNum] || state.channels[1];
+        const vScale = currentVScale(srcNum);
+        const zeroY = gy + gh / 2 - ch.offset * (gh / 8);
+        state.trigger.level = clamp(((zeroY - my) / (gh / 8)) * vScale, -4 * vScale, 4 * vScale);
+        syncTriggerUI();
+        drawScope();
+      } else if (dragTarget.type === 'hpos') {
+        state.horiz.posDiv = clamp((mx - (gx + gw / 2)) / (gw / 10), -5, 5);
+        syncHorizontalUI();
+        drawScope();
+      } else if (dragTarget.type === 'x1') {
+        state.cursors.x1 = clamp((mx - gx) / gw, 0, 1);
+        updateCursorReadouts();
+        drawScope();
+      } else if (dragTarget.type === 'x2') {
+        state.cursors.x2 = clamp((mx - gx) / gw, 0, 1);
+        updateCursorReadouts();
+        drawScope();
+      } else if (dragTarget.type === 'y1') {
+        state.cursors.y1 = clamp((my - gy) / gh, 0, 1);
+        updateCursorReadouts();
+        drawScope();
+      } else if (dragTarget.type === 'y2') {
+        state.cursors.y2 = clamp((my - gy) / gh, 0, 1);
+        updateCursorReadouts();
+        drawScope();
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!dragTarget) return;
+      if (dragTarget.type === 'ch') {
+        const chNum = dragTarget.ch;
+        const volts = (state.channels[chNum].offset * currentVScale(chNum)).toFixed(4);
+        sendScpi(`:CHAN${chNum}:OFFS ${volts}`);
+      } else if (dragTarget.type === 'trig') {
+        sendScpi(`:TRIG:EDGE:LEV ${state.trigger.level.toFixed(4)}`);
+      } else if (dragTarget.type === 'hpos') {
+        const sec = (state.horiz.posDiv * currentTScale()).toExponential(4);
+        sendScpi(`:TIM:MAIN:OFFS ${sec}`);
+      }
+      dragTarget = null;
+      drawScope();
+    });
+
+    scopeCanvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const dir = e.deltaY > 0 ? 1 : -1;
+      if (e.shiftKey) stepVScale(dir);
+      else stepHScale(dir);
+    }, { passive: false });
+  }
+
+  // ============================================================
+  // REAL MEASUREMENTS ENGINE (COMPUTED FROM ACQUIRED SAMPLES)
+  // ============================================================
+  function computeMeasurements(samples) {
+    if (!samples || samples.length < 4) {
+      return {
+        vpp: null, vmax: null, vmin: null, vamp: null, vavg: null, vrms: null,
+        freq: null, period: null, dutyPos: null, dutyNeg: null, rise: null, fall: null
+      };
+    }
+
+    const n = samples.length;
+    let min = Infinity, max = -Infinity, sum = 0, sumSq = 0;
+    for (let i = 0; i < n; i++) {
+      const v = samples[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+      sum += v;
+      sumSq += v * v;
+    }
+
+    const vpp = max - min;
+    const vavg = sum / n;
+    const vrms = Math.sqrt(sumSq / n);
+    const mid = (max + min) * 0.5;
+    const dt = (currentTScale() * 10) / n;
+
+    // Rising & falling zero-crossings around mid
+    const risingIdx = [];
+    let highCount = 0;
+    for (let i = 0; i < n; i++) {
+      if (samples[i] >= mid) highCount++;
+      if (i > 0 && samples[i - 1] < mid && samples[i] >= mid) {
+        const frac = (mid - samples[i - 1]) / (samples[i] - samples[i - 1] || 1);
+        risingIdx.push((i - 1) + frac);
+      }
+    }
+
+    let period = null, freq = null;
+    if (risingIdx.length >= 2 && vpp > 1e-4) {
+      const avgPeriodSamples = (risingIdx[risingIdx.length - 1] - risingIdx[0]) / (risingIdx.length - 1);
+      period = avgPeriodSamples * dt;
+      freq = period > 0 ? 1 / period : null;
+    }
+
+    const dutyPos = vpp > 1e-4 ? (highCount / n) * 100 : null;
+    const dutyNeg = dutyPos !== null ? 100 - dutyPos : null;
+
+    // 10%-90% Rise and Fall time
+    const low10 = min + 0.1 * vpp;
+    const high90 = min + 0.9 * vpp;
+    let rise = null, fall = null;
+    if (vpp > 1e-4) {
+      let rStart = -1, fStart = -1;
+      for (let i = 1; i < n; i++) {
+        if (rise === null) {
+          if (samples[i - 1] < low10 && samples[i] >= low10) rStart = i;
+          else if (rStart >= 0 && samples[i] >= high90) rise = (i - rStart) * dt;
+        }
+        if (fall === null) {
+          if (samples[i - 1] > high90 && samples[i] <= high90) fStart = i;
+          else if (fStart >= 0 && samples[i] <= low10) fall = (i - fStart) * dt;
+        }
+        if (rise !== null && fall !== null) break;
+      }
+    }
+
+    return { vpp, vmax: max, vmin: min, vamp: vpp, vavg, vrms, freq, period, dutyPos, dutyNeg, rise, fall };
+  }
+
+  function renderMeasurements() {
+    const chNum = state.measSource;
+    const m = computeMeasurements(state.waveforms[chNum]);
+    const color = CH_COLORS[chNum];
+
+    const items = [
+      { label: 'Vpp', value: formatEng(m.vpp, 'V') },
+      { label: 'Vmax', value: formatEng(m.vmax, 'V') },
+      { label: 'Vmin', value: formatEng(m.vmin, 'V') },
+      { label: 'Vavg', value: formatEng(m.vavg, 'V') },
+      { label: 'Vrms', value: formatEng(m.vrms, 'V') },
+      { label: 'Vamp', value: formatEng(m.vamp, 'V') },
+      { label: 'Freq', value: formatEng(m.freq, 'Hz') },
+      { label: 'Period', value: formatEng(m.period, 's') },
+      { label: 'Duty +', value: m.dutyPos !== null ? `${m.dutyPos.toFixed(1)} %` : '---' },
+      { label: 'Duty -', value: m.dutyNeg !== null ? `${m.dutyNeg.toFixed(1)} %` : '---' },
+      { label: 'Rise', value: formatEng(m.rise, 's') },
+      { label: 'Fall', value: formatEng(m.fall, 's') }
+    ];
+
+    const grid = document.getElementById('measGrid');
+    grid.innerHTML = items.map(it => `
+      <div class="meas-cell" style="border-left-color: ${color};">
+        <span class="meas-label">${it.label}</span>
+        <span class="meas-value">${it.value}</span>
+      </div>
+    `).join('');
+  }
+
+  function updateCursorReadouts() {
+    const mode = state.cursors.mode;
+    if (mode === 'off') {
+      ['curX1', 'curX2', 'curDX', 'curFreq', 'curY1', 'curY2', 'curDY'].forEach(id => {
+        document.getElementById(id).textContent = '---';
+      });
+      return;
+    }
+
+    const totalT = currentTScale() * 10;
+    const tOffset = state.horiz.posDiv * currentTScale();
+    const x1t = (state.cursors.x1 - 0.5) * totalT - tOffset;
+    const x2t = (state.cursors.x2 - 0.5) * totalT - tOffset;
+    const dxt = Math.abs(x2t - x1t);
+
+    if (mode === 'x' || mode === 'xy') {
+      document.getElementById('curX1').textContent = formatEng(x1t, 's');
+      document.getElementById('curX2').textContent = formatEng(x2t, 's');
+      document.getElementById('curDX').textContent = formatEng(dxt, 's');
+      document.getElementById('curFreq').textContent = dxt > 0 ? formatEng(1 / dxt, 'Hz') : '---';
+    } else {
+      ['curX1', 'curX2', 'curDX', 'curFreq'].forEach(id => document.getElementById(id).textContent = '---');
+    }
+
+    const ch = state.channels[state.cursors.source];
+    const vScale = currentVScale(state.cursors.source);
+    const y1v = ((0.5 - state.cursors.y1) * 8 - ch.offset) * vScale;
+    const y2v = ((0.5 - state.cursors.y2) * 8 - ch.offset) * vScale;
+    const dyv = Math.abs(y2v - y1v);
+
+    if (mode === 'y' || mode === 'xy') {
+      document.getElementById('curY1').textContent = formatEng(y1v, 'V');
+      document.getElementById('curY2').textContent = formatEng(y2v, 'V');
+      document.getElementById('curDY').textContent = formatEng(dyv, 'V');
+    } else {
+      ['curY1', 'curY2', 'curDY'].forEach(id => document.getElementById(id).textContent = '---');
+    }
+  }
+
+  // ============================================================
+  // REAL RADIX-2 FFT SPECTRUM RENDERER
+  // ============================================================
+  function drawFFT() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = fftCanvas.width / dpr;
+    const h = fftCanvas.height / dpr;
+    if (w < 20 || h < 20) return;
+
+    fftCtx.fillStyle = '#111215';
+    fftCtx.fillRect(0, 0, w, h);
+
+    // Spectrum Grid
+    fftCtx.strokeStyle = 'rgba(110, 114, 128, 0.22)';
+    fftCtx.lineWidth = 1;
+    fftCtx.beginPath();
+    for (let i = 1; i < 10; i++) {
+      const x = Math.round((w * i) / 10) + 0.5;
+      fftCtx.moveTo(x, 0); fftCtx.lineTo(x, h);
+    }
+    for (let j = 1; j < 4; j++) {
+      const y = Math.round((h * j) / 4) + 0.5;
+      fftCtx.moveTo(0, y); fftCtx.lineTo(w, y);
+    }
+    fftCtx.stroke();
+
+    const samples = state.waveforms[state.math.fftSrc];
+    if (!samples || samples.length < 32) {
+      fftCtx.fillStyle = '#5c5f68';
+      fftCtx.font = '11px "JetBrains Mono", monospace';
+      fftCtx.fillText('NO ACQUIRED DATA — CONNECT INSTRUMENT TO COMPUTE FFT', 12, h / 2 + 4);
+      return;
+    }
+
+    // Power-of-2 FFT size
+    let N = 1;
+    while (N * 2 <= samples.length && N < 2048) N *= 2;
+    const re = new Float64Array(N);
+    const im = new Float64Array(N);
+    const winType = state.math.fftWindow;
+
+    for (let i = 0; i < N; i++) {
+      let win = 1;
+      if (winType === 'hann') win = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (N - 1)));
+      else if (winType === 'hamming') win = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (N - 1));
+      else if (winType === 'blackman') win = 0.42 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1)) + 0.08 * Math.cos((4 * Math.PI * i) / (N - 1));
+      re[i] = samples[i] * win;
+    }
+
+    radix2FFT(re, im);
+
+    const half = N / 2;
+    const mags = new Float64Array(half);
+    let maxMag = 1e-6;
+    for (let k = 0; k < half; k++) {
+      const m = (2 * Math.hypot(re[k], im[k])) / N;
+      mags[k] = m;
+      if (m > maxMag) maxMag = m;
+    }
+
+    fftCtx.strokeStyle = CH_COLORS.M;
+    fftCtx.lineWidth = 1.3;
+    fftCtx.beginPath();
+    for (let k = 0; k < half; k++) {
+      const x = (k / (half - 1)) * w;
+      let norm = 0;
+      if (state.math.fftUnit === 'dbv') {
+        const db = 20 * Math.log10(Math.max(mags[k], 1e-5));
+        norm = clamp((db + 80) / 100, 0, 1);
+      } else {
+        norm = clamp(mags[k] / maxMag, 0, 1);
+      }
+      const y = h - 6 - norm * (h - 14);
+      if (k === 0) fftCtx.moveTo(x, y);
+      else fftCtx.lineTo(x, y);
+    }
+    fftCtx.stroke();
+  }
+
+  function radix2FFT(re, im) {
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) {
+        [re[i], re[j]] = [re[j], re[i]];
+        [im[i], im[j]] = [im[j], im[i]];
+      }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = (-2 * Math.PI) / len;
+      const wlenRe = Math.cos(ang);
+      const wlenIm = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        let wRe = 1, wIm = 0;
+        for (let j = 0; j < len / 2; j++) {
+          const uRe = re[i + j], uIm = im[i + j];
+          const vRe = re[i + j + len / 2] * wRe - im[i + j + len / 2] * wIm;
+          const vIm = re[i + j + len / 2] * wIm + im[i + j + len / 2] * wRe;
+          re[i + j] = uRe + vRe;
+          im[i + j] = uIm + vIm;
+          re[i + j + len / 2] = uRe - vRe;
+          im[i + j + len / 2] = uIm - vIm;
+          const nextWRe = wRe * wlenRe - wIm * wlenIm;
+          wIm = wRe * wlenIm + wIm * wlenRe;
+          wRe = nextWRe;
+        }
+      }
+    }
+  }
+
+  // ============================================================
+  // FILE EXPORT & SETUP SAVE / RECALL
+  // ============================================================
+  async function exportPng() {
+    const dataUrl = scopeCanvas.toDataURL('image/png');
+    const name = `tenma8737_capture_${Date.now()}.png`;
+    if (window.electronAPI && window.electronAPI.saveImage) {
+      const res = await window.electronAPI.saveImage(dataUrl, name);
+      if (res && res.success) logScpi('SYS', `Saved PNG capture: ${res.filePath}`);
+    }
+  }
+
+  async function exportCsv() {
+    const activeChannels = [1, 2, 3, 4].filter(c => state.waveforms[c] && state.waveforms[c].length > 0);
+    if (activeChannels.length === 0) {
+      logScpi('ERR', 'No acquired waveform data available to export.');
+      return;
+    }
+    const maxLen = Math.max(...activeChannels.map(c => state.waveforms[c].length));
+    const dt = (currentTScale() * 10) / maxLen;
+    let csv = `Time_s,${activeChannels.map(c => `CH${c}_V`).join(',')}\n`;
+    for (let i = 0; i < maxLen; i++) {
+      const t = (i * dt).toExponential(6);
+      const vals = activeChannels.map(c => {
+        const arr = state.waveforms[c];
+        return i < arr.length ? arr[i].toFixed(6) : '';
+      });
+      csv += `${t},${vals.join(',')}\n`;
+    }
+    const name = `tenma8737_waveform_${Date.now()}.csv`;
+    if (window.electronAPI && window.electronAPI.saveCSV) {
+      const res = await window.electronAPI.saveCSV(csv, name);
+      if (res && res.success) logScpi('SYS', `Exported CSV (${maxLen} samples): ${res.filePath}`);
+    }
+  }
+
+  async function saveSetupFile() {
+    const payload = JSON.stringify({
+      instrument: 'Tenma 8737',
+      channels: state.channels,
+      horiz: state.horiz,
+      trigger: state.trigger,
+      acq: state.acq
+    }, null, 2);
+
+    if (window.electronAPI && window.electronAPI.saveSetup) {
+      const res = await window.electronAPI.saveSetup(payload, 'tenma8737_setup.json');
+      if (res && res.success) logScpi('SYS', `Setup saved: ${res.filePath}`);
+    }
+  }
+
+  async function loadSetupFile() {
+    if (window.electronAPI && window.electronAPI.loadSetup) {
+      const res = await window.electronAPI.loadSetup();
+      if (res && res.success && res.data) {
+        try {
+          const parsed = JSON.parse(res.data);
+          if (parsed.channels) state.channels = parsed.channels;
+          if (parsed.horiz) state.horiz = parsed.horiz;
+          if (parsed.trigger) state.trigger = { ...state.trigger, ...parsed.trigger };
+          if (parsed.acq) state.acq = { ...state.acq, ...parsed.acq };
+          syncAllUI();
+          drawScope();
+          logScpi('SYS', `Setup recalled: ${res.filePath}`);
+        } catch (err) {
+          logScpi('ERR', `Invalid setup file: ${err.message}`);
+        }
+      }
+    }
+  }
+
+  // ============================================================
+  // UI SYNCHRONIZATION
+  // ============================================================
+  function syncAllUI() {
+    syncConnectionUI();
+    syncAcquisitionUI();
+    syncVerticalUI();
+    syncHorizontalUI();
+    syncTriggerUI();
+    syncChannelStrip();
+    updateCursorReadouts();
+  }
+
+  function syncConnectionUI() {
+    const led = document.getElementById('connLed');
+    const lbl = document.getElementById('connLabel');
+    const quickDisc = document.getElementById('btnDisconnectQuick');
+    const modalDisc = document.getElementById('btnModalDisconnect');
+    const banner = document.getElementById('offlineBanner');
+    const statusText = document.getElementById('statusConnText');
+
+    if (state.connected) {
+      led.className = 'led online';
+      lbl.textContent = state.portLabel;
+      quickDisc.style.display = 'inline-flex';
+      modalDisc.style.display = 'inline-flex';
+      banner.classList.add('hidden');
+      statusText.textContent = `Interface: ${state.portLabel}`;
+    } else {
+      led.className = 'led';
+      lbl.textContent = 'OFFLINE';
+      quickDisc.style.display = 'none';
+      modalDisc.style.display = 'none';
+      banner.classList.remove('hidden');
+      document.getElementById('idnReadout').textContent = 'No Instrument Connected';
+      statusText.textContent = 'Interface: Disconnected';
+    }
+  }
+
+  function syncAcquisitionUI() {
+    const btn = document.getElementById('btnRunStop');
+    const lbl = document.getElementById('runStopLabel');
+    const singleBtn = document.getElementById('btnSingle');
+    const badge = document.getElementById('acqStateBadge');
+
+    if (state.running) {
+      btn.className = 'tb-btn run-active';
+      lbl.textContent = 'STOP';
+    } else {
+      btn.className = 'tb-btn stop-active';
+      lbl.textContent = 'RUN';
+    }
+    singleBtn.classList.toggle('armed', state.singleArmed);
+
+    badge.textContent = state.trigger.status;
+    badge.className = 'acq-badge';
+    if (state.trigger.status === 'RUN' || state.trigger.status === "TRIG'D") badge.classList.add('run');
+    else if (state.trigger.status === 'STOP') badge.classList.add('stop');
+    else if (state.trigger.status === 'WAIT') badge.classList.add('wait');
+  }
+
+  function syncVerticalUI() {
+    const chNum = state.activeChannel;
+    const ch = state.channels[chNum];
+    document.getElementById('vertHeaderSub').textContent = `CH${chNum}`;
+    document.getElementById('vertHeaderSub').style.color = CH_COLORS[chNum];
+
+    const enBtn = document.getElementById('btnChEnable');
+    enBtn.textContent = ch.enabled ? 'ON' : 'OFF';
+    enBtn.classList.toggle('on', ch.enabled);
+
+    const invBtn = document.getElementById('btnChInvert');
+    invBtn.classList.toggle('on', ch.invert);
+
+    document.getElementById('valVScale').textContent = formatVoltsDiv(currentVScale(chNum));
+    document.getElementById('rngVOffset').value = ch.offset;
+    document.getElementById('valVOffset').textContent = `${ch.offset >= 0 ? '+' : ''}${ch.offset.toFixed(2)} div`;
+
+    setSegmentedValue('segCoupling', ch.coupling);
+    setSegmentedValue('segProbe', ch.probe);
+    setSegmentedValue('segBwLimit', ch.bwLimit);
+  }
+
+  function syncHorizontalUI() {
+    const tbText = formatTimeDiv(currentTScale());
+    document.getElementById('valHScale').textContent = tbText;
+    document.getElementById('hudTimebase').textContent = tbText;
+
+    document.getElementById('rngHPos').value = state.horiz.posDiv;
+    document.getElementById('valHPos').textContent = `${state.horiz.posDiv >= 0 ? '+' : ''}${state.horiz.posDiv.toFixed(2)} div`;
+    document.getElementById('hudHPos').textContent = formatEng(state.horiz.posDiv * currentTScale(), 's');
+    document.getElementById('hudFormat').textContent = state.horiz.format === 'YT' ? 'Y-T' : (state.horiz.format === 'XY' ? 'X-Y' : 'ROLL');
+    document.getElementById('hudSampleRate').textContent = state.acq.sampleRate ? formatEng(state.acq.sampleRate, 'Sa/s') : '---';
+
+    const md = state.acq.memDepth;
+    document.getElementById('hudMemDepth').textContent = md >= 1e6 ? `${md / 1e6} Mpts` : `${md / 1e3} kpts`;
+    setSegmentedValue('segHFormat', state.horiz.format);
+  }
+
+  function syncTriggerUI() {
+    const t = state.trigger;
+    document.getElementById('trigHeaderSub').textContent = t.type;
+    document.getElementById('selTrigType').value = t.type;
+    document.getElementById('selTrigSrc').value = t.source;
+    document.getElementById('selTrigCoup').value = t.coupling;
+    setSegmentedValue('segTrigSweep', t.sweep);
+    setSegmentedValue('segTrigSlope', t.slope);
+
+    document.getElementById('rngTrigLevel').value = clamp(t.level, -4, 4);
+    document.getElementById('valTrigLevel').textContent = formatEng(t.level, 'V');
+    document.getElementById('valHoldoff').textContent = formatHoldoff(HOLDOFF_STEPS[t.holdoffIdx]);
+
+    const srcShort = t.source.replace('CHAN', 'CH');
+    const slopeShort = t.slope === 'POS' ? 'Rising' : (t.slope === 'NEG' ? 'Falling' : 'Either');
+    document.getElementById('hudTrigger').textContent = `${srcShort} ${slopeShort} ${formatEng(t.level, 'V')} [${t.sweep}]`;
+  }
+
+  function syncChannelStrip() {
+    for (let chNum = 1; chNum <= 4; chNum++) {
+      const ch = state.channels[chNum];
+      const tile = document.querySelector(`#chStrip .ch-tile[data-ch="${chNum}"]`);
+      if (!tile) continue;
+      tile.classList.toggle('enabled', ch.enabled);
+      tile.classList.toggle('selected', state.activeChannel === chNum);
+      document.getElementById(`stripCh${chNum}Scale`).textContent = ch.enabled ? formatVoltsShort(currentVScale(chNum)) : 'OFF';
+      document.getElementById(`stripCh${chNum}Info`).textContent = `${ch.coupling} · ${ch.probe}X${ch.invert ? ' · INV' : ''}`;
+    }
+
+    const mathTile = document.querySelector('#chStrip .ch-tile[data-ch="M"]');
+    if (mathTile) {
+      mathTile.classList.toggle('enabled', state.math.enabled);
+      document.getElementById('stripMathInfo').textContent = state.math.enabled ? 'ON' : 'OFF';
+      const opLabel = state.math.op === 'sub' ? 'CH1 - CH2' : (state.math.op === 'add' ? 'CH1 + CH2' : 'CH1 * CH2');
+      document.getElementById('stripMathOp').textContent = opLabel;
+    }
+  }
+
+  // ============================================================
+  // SCPI LOGGING & LED HELPERS
+  // ============================================================
+  function logScpi(dir, msg) {
+    const log = document.getElementById('scpiLog');
+    if (!log) return;
+    const now = new Date();
+    const ts = now.toTimeString().slice(0, 8);
+    const row = document.createElement('div');
+    row.className = 'scpi-line';
+    const dirClass = dir.toLowerCase();
+    row.innerHTML = `<span class="scpi-ts">${ts}</span><span class="scpi-dir ${dirClass}">${dir.padEnd(3, ' ')}</span><span>${escapeHtml(msg)}</span>`;
+    log.appendChild(row);
+    while (log.children.length > 200) log.removeChild(log.firstChild);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function flashLed(id, cls) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.add(cls);
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove(cls), 140);
+  }
+
+  function clamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
   }
 
   function escapeHtml(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(str).replace(/[&<>"']/g, s => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[s]));
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-
+  window.addEventListener('DOMContentLoaded', init);
 })();

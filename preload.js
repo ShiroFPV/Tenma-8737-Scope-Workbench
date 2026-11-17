@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Native File dialogs
   saveCSV: (data, defaultName) => ipcRenderer.invoke('save-csv', { data, defaultName }),
   saveImage: (dataUrl, defaultName) => ipcRenderer.invoke('save-image', { dataUrl, defaultName }),
+  saveSetup: (data, defaultName) => ipcRenderer.invoke('save-setup', { data, defaultName }),
+  loadSetup: () => ipcRenderer.invoke('load-setup'),
 
   // System Hardware Tools
   openDeviceManager: () => ipcRenderer.invoke('open-device-manager'),

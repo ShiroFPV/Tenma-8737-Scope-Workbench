@@ -123,78 +123,118 @@ ipcMain.handle('save-image', async (event, { dataUrl, defaultName }) => {
   }
 });
 
-// Comprehensive Windows COM Port Scanner
-ipcMain.handle('get-com-ports-detailed', () => {
+ipcMain.handle('save-setup', async (event, { data, defaultName }) => {
+  if (!mainWindow) return { success: false };
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save Oscilloscope Setup',
+    defaultPath: defaultName || 'tenma_setup.json',
+    filters: [
+      { name: 'Oscilloscope Setup (JSON)', extensions: ['json'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (canceled || !filePath) return { success: false, canceled: true };
+
+  try {
+    fs.writeFileSync(filePath, data, 'utf-8');
+    return { success: true, filePath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('load-setup', async () => {
+  if (!mainWindow) return { success: false };
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Recall Oscilloscope Setup',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Oscilloscope Setup (JSON)', extensions: ['json'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (canceled || !filePaths || filePaths.length === 0) return { success: false, canceled: true };
+
+  try {
+    const content = fs.readFileSync(filePaths[0], 'utf-8');
+    return { success: true, data: content, filePath: filePaths[0] };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Helper to run PowerShell cleanly without cmd.exe variable stripping
+function runPowerShell(psCommand) {
   return new Promise((resolve) => {
-    const cmd = 'powershell -NoProfile -Command "Get-PnpDevice -Class Ports | Select-Object FriendlyName, InstanceId, Status, Present | ConvertTo-Json"';
-    exec(cmd, (err, stdout) => {
-      let ports = [];
-      if (!err && stdout) {
-        try {
-          const parsed = JSON.parse(stdout);
-          const list = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
-          ports = list.map(p => {
-            const match = p.FriendlyName ? p.FriendlyName.match(/\((COM\d+)\)/i) : null;
-            return {
-              port: match ? match[1].toUpperCase() : (p.FriendlyName || 'COM1'),
-              name: p.FriendlyName || 'Serial Device',
-              present: p.Present === true,
-              status: p.Status || 'Unknown'
-            };
-          });
-        } catch (e) {}
-      }
+    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psCommand]);
+    let stdout = '';
+    child.stdout.on('data', (d) => { stdout += d.toString(); });
+    child.on('error', () => resolve(''));
+    child.on('close', () => resolve(stdout));
+  });
+}
 
-      // Also query registry HKLM\HARDWARE\DEVICEMAP\SERIALCOMM for active COM mappings
-      exec('reg query HKLM\\HARDWARE\\DEVICEMAP\\SERIALCOMM', (regErr, regOut) => {
-        if (!regErr && regOut) {
-          const matches = regOut.match(/REG_SZ\s+(COM\d+)/gi);
-          if (matches) {
-            matches.forEach(m => {
-              const portName = m.replace(/REG_SZ\s+/i, '').trim().toUpperCase();
-              const existing = ports.find(p => p.port === portName);
-              if (existing) {
-                existing.present = true;
-                existing.status = 'OK';
-              } else {
-                ports.push({
-                  port: portName,
-                  name: `${portName} (Active Serial Port)`,
-                  present: true,
-                  status: 'OK'
-                });
-              }
-            });
-          }
-        }
-
-        if (ports.length === 0) {
-          ports.push({ port: 'COM1', name: 'COM1 (Communications Port)', present: true, status: 'OK' });
-        }
-
-        resolve(ports);
+// Comprehensive Windows COM Port Scanner
+ipcMain.handle('get-com-ports-detailed', async () => {
+  const stdout = await runPowerShell("Get-PnpDevice -Class Ports | Select-Object FriendlyName, InstanceId, Status, Present | ConvertTo-Json");
+  let ports = [];
+  if (stdout) {
+    try {
+      const parsed = JSON.parse(stdout);
+      const list = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+      ports = list.map(p => {
+        const match = p.FriendlyName ? p.FriendlyName.match(/\((COM\d+)\)/i) : null;
+        return {
+          port: match ? match[1].toUpperCase() : (p.FriendlyName || 'COM1'),
+          name: p.FriendlyName || 'Serial Device',
+          instanceId: p.InstanceId || '',
+          present: p.Present === true,
+          status: p.Status || 'Unknown'
+        };
       });
+    } catch (e) {}
+  }
+
+  return new Promise((resolve) => {
+    exec('reg query HKLM\\HARDWARE\\DEVICEMAP\\SERIALCOMM', (regErr, regOut) => {
+      if (!regErr && regOut) {
+        const matches = regOut.match(/REG_SZ\s+(COM\d+)/gi);
+        if (matches) {
+          matches.forEach(m => {
+            const portName = m.replace(/REG_SZ\s+/i, '').trim().toUpperCase();
+            const existing = ports.find(p => p.port === portName);
+            if (existing) {
+              existing.present = true;
+              existing.status = 'OK';
+            } else {
+              ports.push({
+                port: portName,
+                name: `${portName} (Active Serial Port)`,
+                instanceId: '',
+                present: true,
+                status: 'OK'
+              });
+            }
+          });
+        }
+      }
+      resolve(ports);
     });
   });
 });
 
 // Query all connected USB & Hardware devices
-ipcMain.handle('get-all-usb-devices', () => {
-  return new Promise((resolve) => {
-    const cmd = 'powershell -NoProfile -Command "Get-PnpDevice -PresentOnly | Where-Object { $_.Class -in @(\'Ports\',\'USB\',\'USBDevice\',\'Unknown\') -or $_.InstanceId -like \'*USB*\' } | Select-Object FriendlyName, InstanceId, Class, Status | ConvertTo-Json"';
-    exec(cmd, (err, stdout) => {
-      if (err || !stdout) {
-        resolve([]);
-        return;
-      }
-      try {
-        const parsed = JSON.parse(stdout);
-        resolve(Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []));
-      } catch (e) {
-        resolve([]);
-      }
-    });
-  });
+ipcMain.handle('get-all-usb-devices', async () => {
+  const stdout = await runPowerShell("Get-PnpDevice -PresentOnly | Where-Object { $_.Class -in @('Ports','USB','USBDevice','Unknown') -or $_.InstanceId -like 'USB*' } | Select-Object FriendlyName, InstanceId, Class, Status | ConvertTo-Json");
+  if (!stdout) return [];
+  try {
+    const parsed = JSON.parse(stdout);
+    return Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+  } catch (e) {
+    return [];
+  }
 });
 
 // Native Windows Serial Port Connection using .NET System.IO.Ports
