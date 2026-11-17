@@ -53,6 +53,11 @@
         CSV
       </button>
 
+      <button class="btn" id="btnDriverGuide" title="Open Hardware & Driver Setup Guide">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        DRIVER GUIDE
+      </button>
+
       <button class="btn btn-primary" id="btnConnectModal">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
         CONNECT
@@ -421,48 +426,142 @@
 
   <!-- Connection Setup Modal -->
   <div class="modal-overlay" id="connModal">
-    <div class="modal-card">
+    <div class="modal-card" style="width: 540px;">
       <div class="modal-title">
         <span>CONNECT TENMA 8737 SCOPE</span>
         <button class="btn btn-icon" id="btnCloseModal" style="border: none; background: transparent;">✕</button>
       </div>
       
       <p class="modal-desc">
-        Connect your Tenma oscilloscope to your Windows 11 PC using the <strong>USB-B</strong> cable. Choose how you want to link the device:
+        Connect your Tenma oscilloscope to your Windows 11 PC via the rear <strong>USB-B</strong> cable. Select your connection interface:
       </p>
 
       <div class="conn-option-list">
-        <!-- WebUSB Option -->
-        <div class="conn-option selected" id="optWebUSB">
-          <div>
-            <div class="conn-name">Direct USB (USBTMC / Bulk Transfer)</div>
-            <div class="conn-detail">Direct hardware USB link. Communicates with Tenma & Uni-Trend USB endpoints.</div>
+        
+        <!-- 1. USB Virtual COM Port (Serial) - RECOMMENDED -->
+        <div class="conn-option selected" id="optWebSerial" style="flex-direction: column; align-items: stretch; gap: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+              <div class="conn-name" style="display: flex; align-items: center; gap: 6px;">
+                <span>USB Virtual COM Port (Serial)</span>
+                <span style="font-size: 10px; background: rgba(16, 185, 129, 0.2); color: var(--success); padding: 1px 6px; border-radius: 4px; font-weight: 600;">RECOMMENDED</span>
+              </div>
+              <div class="conn-detail">Standard serial link. Communicates directly with the scope's USB-UART / CDC interface.</div>
+            </div>
           </div>
-          <button class="btn btn-primary" id="btnConnectWebUSB">PAIR USB</button>
+
+          <!-- Direct COM Port Dropdown & Baud Selector -->
+          <div style="display: flex; gap: 8px; align-items: center; background: var(--bg-deep); padding: 8px; border-radius: 6px; border: 1px solid var(--border-subtle);">
+            <div style="flex: 1;">
+              <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">SELECT COM PORT</div>
+              <select class="select-custom" id="selComPort">
+                <option value="">Scanning COM ports...</option>
+              </select>
+            </div>
+            <button class="btn" id="btnRefreshPorts" title="Refresh available COM ports" style="margin-top: 14px; height: 30px; padding: 0 8px;">
+              ↻ Refresh
+            </button>
+            <div style="width: 90px;">
+              <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">BAUD RATE</div>
+              <select class="select-custom" id="selBaudRate">
+                <option value="115200" selected>115200</option>
+                <option value="9600">9600</option>
+                <option value="38400">38400</option>
+                <option value="57600">57600</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <a href="#" id="linkOpenDriverGuide" style="color: var(--ch2-color); font-size: 11px; text-decoration: none;">Don't see your COM port? Open Driver Guide →</a>
+            <button class="btn btn-primary" id="btnConnectSerialDirect">CONNECT TO COM</button>
+          </div>
         </div>
 
-        <!-- WebSerial Option -->
-        <div class="conn-option" id="optWebSerial">
+        <!-- 2. Direct USB (USBTMC / Bulk Transfer) -->
+        <div class="conn-option" id="optWebUSB">
           <div>
-            <div class="conn-name">USB Virtual COM Port (Serial / CDC)</div>
-            <div class="conn-detail">Standard serial link (COM1, COM3, etc.) for scopes enumerating as CDC ACM serial.</div>
+            <div class="conn-name">Direct USB (USBTMC / WinUSB)</div>
+            <div class="conn-detail">For scopes using USB Test & Measurement Class or WinUSB (used with VISA / Zadig).</div>
           </div>
-          <button class="btn" id="btnConnectSerial">SELECT COM</button>
+          <button class="btn" id="btnConnectWebUSB">PAIR USB</button>
         </div>
 
-        <!-- Simulator Option -->
+        <!-- 3. Hardware Simulator -->
         <div class="conn-option" id="optSim">
           <div>
             <div class="conn-name">Built-in Hardware Simulator</div>
-            <div class="conn-detail">Test controls, analyze DSHOT / gyro signals, measurements & FFT without physical scope.</div>
+            <div class="conn-detail">Test all scope controls, analyze DSHOT / gyro signals, FFT & measurements without physical hardware right now.</div>
           </div>
           <button class="btn" id="btnEnableSim">ACTIVATE</button>
         </div>
       </div>
+    </div>
+  </div>
 
-      <div id="detectedDevicesBox" style="background: var(--bg-deep); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px; font-family: var(--font-mono); font-size: 11px; max-height: 100px; overflow-y: auto;">
-        <div style="color: var(--text-muted);">Detected Windows USB / COM Devices:</div>
-        <div id="deviceListLog" style="margin-top: 4px; color: var(--text-secondary);">Scanning system...</div>
+  <!-- In-App Interactive Driver & Hardware Setup Guide Modal -->
+  <div class="modal-overlay" id="driverGuideModal">
+    <div class="modal-card" style="width: 620px; max-height: 85vh; overflow-y: auto;">
+      <div class="modal-title">
+        <span>HARDWARE DRIVER & CONNECTION GUIDE</span>
+        <button class="btn btn-icon" id="btnCloseDriverModal" style="border: none; background: transparent;">✕</button>
+      </div>
+
+      <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; display: flex; flex-direction: column; gap: 14px;">
+        
+        <!-- Step 1 -->
+        <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+          <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+            <span>1. Check Windows Device Manager</span>
+            <button class="btn btn-primary" id="btnLaunchDevMgr" style="font-size: 11px; padding: 3px 8px; height: 24px;">
+              Open Device Manager
+            </button>
+          </div>
+          <p>Plug the <strong>USB-B</strong> cable into the oscilloscope's rear port and into your PC. Turn the scope on, then look for it in Windows Device Manager:</p>
+          <ul style="margin: 6px 0 0 18px; color: var(--text-muted); font-size: 12px;">
+            <li><strong style="color: var(--text-primary);">Under Ports (COM & LPT):</strong> If you see <code>USB Serial Device (COM3)</code> or <code>CH340 (COMx)</code>, the driver is already working! Note the COM number and select it in the connection box.</li>
+            <li><strong style="color: var(--text-primary);">Under Universal Serial Bus Devices:</strong> If you see <code>USB Test and Measurement Device</code> or <code>Uni-Trend DSO</code>, the scope is in Direct USB (USBTMC) mode.</li>
+            <li><strong style="color: var(--danger);">Under Other Devices (⚠️ Yellow mark):</strong> If it shows an exclamation mark, Windows needs a driver. See step 2 below.</li>
+          </ul>
+        </div>
+
+        <!-- Step 2 -->
+        <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+          <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">2. Direct USB vs. Virtual COM Explained</div>
+          <p>Oscilloscopes communicate in one of two modes over their USB-B port:</p>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;">
+            <div style="background: var(--bg-deep); padding: 10px; border-radius: 6px;">
+              <strong style="color: var(--success); font-size: 12px;">Virtual COM (Serial)</strong>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                The scope acts like a serial cable over USB. Fast, easy, and supported out-of-the-box by Windows 11. Choose your COM port from the dropdown.
+              </div>
+            </div>
+            <div style="background: var(--bg-deep); padding: 10px; border-radius: 6px;">
+              <strong style="color: var(--ch2-color); font-size: 12px;">Direct USB (USBTMC)</strong>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                Raw USB Test and Measurement Class packet interface. Used if your scope doesn't expose a COM port. Requires WinUSB or VISA driver.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+          <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">3. Universal 60-Second Fix (If Yellow ⚠️ Mark)</div>
+          <p>If your Tenma scope shows up as an unrecognized device in Windows, you can install the standard Microsoft WinUSB driver in 60 seconds with no vendor software:</p>
+          <ol style="margin: 6px 0 0 18px; color: var(--text-muted); font-size: 12px;">
+            <li>Download the free open-source tool <strong>Zadig</strong> from <a href="https://zadig.akeo.ie" target="_blank" style="color: var(--ch2-color);">zadig.akeo.ie</a>.</li>
+            <li>In Zadig, click <strong>Options</strong> $\rightarrow$ check <strong>List All Devices</strong>.</li>
+            <li>Select your Tenma / Uni-Trend scope from the dropdown menu.</li>
+            <li>Select <strong>WinUSB</strong> as the target driver and click <strong>Replace Driver</strong>.</li>
+            <li>Windows will now recognize the scope immediately!</li>
+          </ol>
+        </div>
+
+        <div style="text-align: right; margin-top: 4px;">
+          <button class="btn btn-primary" id="btnOkDriverGuide">Got it, Back to App</button>
+        </div>
+
       </div>
     </div>
   </div>

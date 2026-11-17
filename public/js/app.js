@@ -57,7 +57,8 @@
   // --- Oscilloscope State ---
   const state = {
     connected: false,
-    connType: 'sim', // 'sim', 'webusb', 'webserial'
+    connType: 'sim', // 'sim', 'serial', 'webusb'
+    activePort: null,
     running: true,
     singleArm: false,
     activeChannel: 1,
@@ -76,16 +77,16 @@
 
     trigger: {
       source: 'CH1',
-      mode: 'AUTO', // 'AUTO', 'NORMAL', 'SINGLE'
+      mode: 'AUTO',
       slope: 'RISING',
       coupling: 'DC',
-      level: 0.5, // volts
+      level: 0.5,
       status: 'TRIG\'D'
     },
 
     cursors: {
       enabled: false,
-      x1: -0.2, // normalized screen -0.5 to 0.5
+      x1: -0.2,
       x2: 0.2,
       y1: 1.0,
       y2: -1.0
@@ -101,7 +102,6 @@
       window: 'hanning'
     },
 
-    // Buffers for real-time waveform points (1000 display samples per channel)
     waveforms: {
       ch1: new Float32Array(1000),
       ch2: new Float32Array(1000),
@@ -113,11 +113,7 @@
     measurements: {}
   };
 
-  // Hardware communication instances
   let usbDevice = null;
-  let serialPort = null;
-  let serialReader = null;
-  let serialWriter = null;
 
   // Canvas context
   const scopeCanvas = document.getElementById('scopeCanvas');
@@ -136,13 +132,24 @@
     renderMeasurementsGrid();
     renderChannelControls();
     logScpi('SYS', 'Tenma 8737 Scope Workbench initialized.');
-    logScpi('SYS', 'Ready. ShiroFPV Hardware Interface v1.0.0 (Windows 11)');
+    logScpi('SYS', 'ShiroFPV Hardware Interface v1.0.0 (Windows 11). Ready.');
 
     // Start render and acquisition loop
     startLoop();
 
-    // Query Windows PnP devices in background
-    refreshDetectedDevices();
+    // Populate COM ports
+    refreshComPortDropdown();
+
+    // Setup serial listener
+    if (window.electronAPI && window.electronAPI.onSerialData) {
+      window.electronAPI.onSerialData((data) => {
+        logScpi('RX', data);
+      });
+      window.electronAPI.onSerialDisconnected(() => {
+        logScpi('SYS', 'Serial connection closed by remote device.');
+        setConnectionMode('sim');
+      });
+    }
   }
 
   // --- Native Window Titlebar Controls ---
@@ -156,7 +163,6 @@
       maxBtn.addEventListener('click', () => window.electronAPI.maximize());
       closeBtn.addEventListener('click', () => window.electronAPI.close());
     } else {
-      // Browser fallback
       minBtn.style.display = 'none';
       maxBtn.style.display = 'none';
       closeBtn.style.display = 'none';
@@ -216,26 +222,19 @@
   function acquireWaveformChunk() {
     const numPoints = 1000;
     const timeScale = TIMEBASE_SCALES[state.timebaseIdx].val;
-    const totalTimeSpan = timeScale * 10; // 10 horizontal divisions
+    const totalTimeSpan = timeScale * 10;
     const dt = totalTimeSpan / numPoints;
-
-    // Trigger sync phase alignment
-    const trigSource = state.trigger.source;
-    let trigOffset = 0;
 
     for (let i = 0; i < numPoints; i++) {
       const t = simTime + (i * dt);
-
       let ch1Val = 0;
       let ch2Val = 0;
 
       switch (state.simSignal) {
         case 'drone_rpm': {
-          // ShiroFPV Flight Controller Motor Telemetry & DSHOT
-          // High speed DSHOT pulse train + RPM harmonic feedback + motor vibration ripple
-          const dshotClock = 300000; // 300 kHz DSHOT300
+          const dshotClock = 300000;
           const bitVal = Math.sin(2 * Math.PI * dshotClock * t) > 0 ? 3.3 : 0.0;
-          const motorRpmFreq = 420; // 25,200 RPM motor
+          const motorRpmFreq = 420;
           const motorBackEmf = 1.2 * Math.sin(2 * Math.PI * motorRpmFreq * t);
           const noise = (Math.random() - 0.5) * 0.15;
           ch1Val = bitVal * 0.7 + noise;
@@ -244,8 +243,7 @@
         }
 
         case 'gyro_noise': {
-          // Flight Controller Gyroscope SPI Bus & Analog Gyro Noise
-          const spiClock = 1000000; // 1 MHz SPI SCK
+          const spiClock = 1000000;
           const spiData = (Math.sin(2 * Math.PI * spiClock * t) > 0.2 ? 3.3 : 0.1);
           const gyroNoise = (Math.random() - 0.5) * 0.8 + 1.65;
           ch1Val = spiData + (Math.random() - 0.5) * 0.1;
@@ -254,11 +252,9 @@
         }
 
         case 'square': {
-          // Standard 1kHz probe calibration square wave with real-world rise time & ringing
           const freq = 1000;
           const phase = (t * freq) % 1.0;
           let v = phase < 0.5 ? 2.5 : 0.0;
-          // overshoot & ringing on edges
           if (phase < 0.04) v += 0.4 * Math.exp(-phase * 100) * Math.sin(phase * 400);
           else if (phase >= 0.5 && phase < 0.54) v -= 0.4 * Math.exp(-(phase - 0.5) * 100) * Math.sin((phase - 0.5) * 400);
           ch1Val = v;
@@ -267,9 +263,8 @@
         }
 
         case 'pwm': {
-          // 400 Hz Servo / ESC PWM
           const freq = 400;
-          const pulseWidth = 0.0015; // 1.5ms neutral pulse
+          const pulseWidth = 0.0015;
           const period = 1.0 / freq;
           const pos = t % period;
           ch1Val = pos < pulseWidth ? 3.3 : 0.0;
@@ -279,7 +274,6 @@
 
         case 'sine':
         default: {
-          // Standard 1 kHz test sine wave
           const freq = 1000;
           ch1Val = 2.0 * Math.sin(2 * Math.PI * freq * t) + (Math.random() - 0.5) * 0.05;
           ch2Val = 1.5 * Math.cos(2 * Math.PI * freq * 2 * t) + (Math.random() - 0.5) * 0.04;
@@ -287,7 +281,6 @@
         }
       }
 
-      // AC Coupling filter
       if (state.channels[1].coupling === 'AC') ch1Val -= 1.65;
       if (state.channels[2].coupling === 'AC') ch2Val -= 0.0;
       if (state.channels[1].coupling === 'GND') ch1Val = 0;
@@ -300,7 +293,6 @@
       state.waveforms.math[i] = ch1Val - ch2Val;
     }
 
-    // Trigger state check
     if (state.trigger.mode === 'SINGLE' && state.singleArm) {
       state.running = false;
       state.singleArm = false;
@@ -316,42 +308,21 @@
     const width = wrapper.clientWidth;
     const height = wrapper.clientHeight;
 
-    // Clear background (Deep dark lab aesthetic)
     scopeCtx.fillStyle = '#0d0e10';
     scopeCtx.fillRect(0, 0, width, height);
 
-    // Draw CRT Reticle Grid
     drawGrid(width, height);
-
-    // Draw Trigger Level reference line
     drawTriggerLine(width, height);
 
-    // Draw Active Waveforms
-    if (state.channels[1].enabled) {
-      drawTrace(state.waveforms.ch1, 1, width, height);
-    }
-    if (state.channels[2].enabled) {
-      drawTrace(state.waveforms.ch2, 2, width, height);
-    }
-    if (state.channels[3].enabled) {
-      drawTrace(state.waveforms.ch3, 3, width, height);
-    }
-    if (state.channels[4].enabled) {
-      drawTrace(state.waveforms.ch4, 4, width, height);
-    }
+    if (state.channels[1].enabled) drawTrace(state.waveforms.ch1, 1, width, height);
+    if (state.channels[2].enabled) drawTrace(state.waveforms.ch2, 2, width, height);
+    if (state.channels[3].enabled) drawTrace(state.waveforms.ch3, 3, width, height);
+    if (state.channels[4].enabled) drawTrace(state.waveforms.ch4, 4, width, height);
 
-    // Draw Math trace
-    if (state.math.enabled) {
-      drawMathTrace(state.waveforms.math, width, height);
-    }
-
-    // Draw Cursors
-    if (state.cursors.enabled) {
-      drawCursors(width, height);
-    }
+    if (state.math.enabled) drawMathTrace(state.waveforms.math, width, height);
+    if (state.cursors.enabled) drawCursors(width, height);
   }
 
-  // --- CRT Reticle Grid Drawing ---
   function drawGrid(w, h) {
     scopeCtx.save();
     scopeCtx.lineWidth = 1;
@@ -362,7 +333,6 @@
     const colW = w / numCols;
     const rowH = h / numRows;
 
-    // Vertical grid lines
     for (let c = 1; c < numCols; c++) {
       const x = Math.round(c * colW);
       scopeCtx.beginPath();
@@ -372,7 +342,6 @@
       scopeCtx.stroke();
     }
 
-    // Horizontal grid lines
     for (let r = 1; r < numRows; r++) {
       const y = Math.round(r * rowH);
       scopeCtx.beginPath();
@@ -382,26 +351,22 @@
       scopeCtx.stroke();
     }
 
-    // Center Crosshairs (Solid lines with tick marks)
     const midX = Math.round(w / 2);
     const midY = Math.round(h / 2);
 
     scopeCtx.setLineDash([]);
     scopeCtx.strokeStyle = '#2d3038';
 
-    // Horizontal center line
     scopeCtx.beginPath();
     scopeCtx.moveTo(0, midY);
     scopeCtx.lineTo(w, midY);
     scopeCtx.stroke();
 
-    // Vertical center line
     scopeCtx.beginPath();
     scopeCtx.moveTo(midX, 0);
     scopeCtx.lineTo(midX, h);
     scopeCtx.stroke();
 
-    // Minor division tick marks on center axes (5 ticks per div)
     scopeCtx.strokeStyle = '#404450';
     const subTicksX = numCols * 5;
     for (let i = 0; i <= subTicksX; i++) {
@@ -426,7 +391,6 @@
     scopeCtx.restore();
   }
 
-  // --- Trigger Level Reference Line ---
   function drawTriggerLine(w, h) {
     const trigChan = state.trigger.source;
     let chNum = 1;
@@ -434,12 +398,11 @@
     const ch = state.channels[chNum];
     const vScale = VOLT_SCALES[ch.voltIdx].val;
 
-    const rowH = h / 8; // 8 divisions
+    const rowH = h / 8;
     const zeroY = (h / 2) - (ch.offset * rowH);
     const trigLevelV = state.trigger.level;
     const trigY = zeroY - (trigLevelV / vScale) * rowH;
 
-    // Draw dashed trigger line
     scopeCtx.save();
     scopeCtx.strokeStyle = 'rgba(249, 115, 22, 0.4)';
     scopeCtx.setLineDash([4, 6]);
@@ -450,21 +413,18 @@
     scopeCtx.stroke();
     scopeCtx.restore();
 
-    // Position trigger marker on screen edge
     const trigMarker = document.getElementById('trigMarker');
     if (trigMarker) {
       trigMarker.style.top = `${Math.max(10, Math.min(h - 10, trigY))}px`;
     }
   }
 
-  // --- Channel Trace Drawing ---
   function drawTrace(data, chNum, w, h) {
     const ch = state.channels[chNum];
     const vScale = VOLT_SCALES[ch.voltIdx].val;
-    const rowH = h / 8; // 8 vertical divisions
+    const rowH = h / 8;
     const zeroY = (h / 2) - (ch.offset * rowH);
 
-    // Update Ground marker position on screen edge
     const gndMarker = document.getElementById(`gndCh${chNum}`);
     if (gndMarker) {
       gndMarker.style.display = ch.enabled ? 'block' : 'none';
@@ -476,8 +436,6 @@
     scopeCtx.lineWidth = 1.8;
     scopeCtx.lineJoin = 'round';
     scopeCtx.lineCap = 'round';
-
-    // Phosphor glow effect
     scopeCtx.shadowColor = ch.color;
     scopeCtx.shadowBlur = 4;
 
@@ -495,7 +453,6 @@
     scopeCtx.restore();
   }
 
-  // --- Math Trace Drawing ---
   function drawMathTrace(data, w, h) {
     const ch1 = state.channels[1];
     const vScale = VOLT_SCALES[ch1.voltIdx].val;
@@ -522,7 +479,6 @@
     scopeCtx.restore();
   }
 
-  // --- Cursors Drawing ---
   function drawCursors(w, h) {
     const cur = state.cursors;
     scopeCtx.save();
@@ -530,7 +486,6 @@
     scopeCtx.setLineDash([3, 3]);
     scopeCtx.lineWidth = 1;
 
-    // Time cursors X1, X2
     const x1Px = (w / 2) + (cur.x1 * w);
     const x2Px = (w / 2) + (cur.x2 * w);
 
@@ -541,7 +496,6 @@
     scopeCtx.lineTo(x2Px, h);
     scopeCtx.stroke();
 
-    // Labels
     scopeCtx.fillStyle = '#e9e9eb';
     scopeCtx.font = '10px "JetBrains Mono"';
     scopeCtx.fillText('X1', x1Px + 4, 16);
@@ -549,7 +503,6 @@
 
     scopeCtx.restore();
 
-    // Update cursor readout values
     const timeScale = TIMEBASE_SCALES[state.timebaseIdx].val;
     const deltaT = Math.abs(cur.x2 - cur.x1) * (timeScale * 10);
     const freq = deltaT > 0 ? (1 / deltaT) : 0;
@@ -559,7 +512,6 @@
     document.getElementById('curFreq').textContent = formatFrequency(freq);
   }
 
-  // --- Real-time FFT Engine ---
   function drawFFT() {
     if (!fftCtx || !fftCanvas) return;
     const w = fftCanvas.parentElement.clientWidth;
@@ -573,13 +525,11 @@
     const N = 256;
     const real = new Float32Array(N);
 
-    // Apply Hanning Window & normalize
     for (let i = 0; i < N; i++) {
       const windowCoeff = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (N - 1)));
       real[i] = rawData[i] * windowCoeff;
     }
 
-    // Compute Magnitude Spectrum (DFT for 128 bins)
     const bins = N / 2;
     const magnitudes = new Float32Array(bins);
     let maxMag = 0.001;
@@ -601,7 +551,6 @@
       }
     }
 
-    // Draw Spectrum Bars / Line
     fftCtx.save();
     fftCtx.strokeStyle = '#00d2ff';
     fftCtx.lineWidth = 1.5;
@@ -612,9 +561,8 @@
 
     for (let k = 0; k < bins; k++) {
       const x = (k / (bins - 1)) * w;
-      // Convert to dB scale
       const db = 20 * Math.log10((magnitudes[k] / maxMag) + 0.001);
-      const y = h - ((db + 60) / 60) * h; // -60dB to 0dB range
+      const y = h - ((db + 60) / 60) * h;
       fftCtx.lineTo(x, Math.max(0, Math.min(h, y)));
     }
     fftCtx.lineTo(w, h);
@@ -623,14 +571,12 @@
     fftCtx.stroke();
     fftCtx.restore();
 
-    // Calculate peak frequency
     const timeScale = TIMEBASE_SCALES[state.timebaseIdx].val;
     const samplingFreq = 1000 / (timeScale * 10);
     const peakFreq = (peakBin * samplingFreq) / N;
     document.getElementById('fftPeakFreq').textContent = formatFrequency(peakFreq);
   }
 
-  // --- Automated Parameter Measurements ---
   function calculateMeasurements() {
     const ch = state.activeChannel;
     const data = state.waveforms[`ch${ch}`];
@@ -653,7 +599,6 @@
     const vavg = sum / data.length;
     const vrms = Math.sqrt(sumSq / data.length);
 
-    // Frequency detection via zero/midpoint crossings
     const mid = (max + min) / 2;
     let crossings = 0;
     let firstCrossing = -1;
@@ -722,9 +667,38 @@
     }
   }
 
+  // --- Dynamic COM Port Enumeration ---
+  async function refreshComPortDropdown() {
+    const sel = document.getElementById('selComPort');
+    if (!sel) return;
+
+    sel.innerHTML = '<option value="">Scanning Windows COM ports...</option>';
+
+    if (window.electronAPI && window.electronAPI.getComPortsDetailed) {
+      try {
+        const ports = await window.electronAPI.getComPortsDetailed();
+        sel.innerHTML = '';
+        if (ports && ports.length > 0) {
+          ports.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.port;
+            opt.textContent = `${p.port} - ${p.name}`;
+            sel.appendChild(opt);
+          });
+        } else {
+          sel.innerHTML = '<option value="">No COM ports detected (Plug in USB-B cable)</option>';
+        }
+      } catch (err) {
+        sel.innerHTML = '<option value="COM1">COM1 - Default Serial Port</option>';
+      }
+    } else {
+      sel.innerHTML = '<option value="COM1">COM1 - Default Port</option>';
+    }
+  }
+
   // --- UI Bindings & Event Listeners ---
   function bindUIEvents() {
-    // Window header buttons
+    // Header buttons
     document.getElementById('btnRunStop').addEventListener('click', toggleRunStop);
     document.getElementById('btnSingle').addEventListener('click', triggerSingleShot);
     document.getElementById('btnAutoSet').addEventListener('click', autoSetupScope);
@@ -733,12 +707,37 @@
 
     // Connection Modal
     const modal = document.getElementById('connModal');
-    document.getElementById('btnConnectModal').addEventListener('click', () => modal.classList.add('active'));
-    document.getElementById('connStatusBtn').addEventListener('click', () => modal.classList.add('active'));
+    document.getElementById('btnConnectModal').addEventListener('click', () => {
+      refreshComPortDropdown();
+      modal.classList.add('active');
+    });
+    document.getElementById('connStatusBtn').addEventListener('click', () => {
+      refreshComPortDropdown();
+      modal.classList.add('active');
+    });
     document.getElementById('btnCloseModal').addEventListener('click', () => modal.classList.remove('active'));
 
+    // Driver Guide Modal
+    const driverModal = document.getElementById('driverGuideModal');
+    document.getElementById('btnDriverGuide').addEventListener('click', () => driverModal.classList.add('active'));
+    document.getElementById('linkOpenDriverGuide').addEventListener('click', (e) => {
+      e.preventDefault();
+      driverModal.classList.add('active');
+    });
+    document.getElementById('btnCloseDriverModal').addEventListener('click', () => driverModal.classList.remove('active'));
+    document.getElementById('btnOkDriverGuide').addEventListener('click', () => driverModal.classList.remove('active'));
+
+    // Launch Device Manager button
+    document.getElementById('btnLaunchDevMgr').addEventListener('click', () => {
+      if (window.electronAPI && window.electronAPI.openDeviceManager) {
+        window.electronAPI.openDeviceManager();
+      }
+    });
+
+    // COM Port Selector Actions
+    document.getElementById('btnRefreshPorts').addEventListener('click', refreshComPortDropdown);
+    document.getElementById('btnConnectSerialDirect').addEventListener('click', connectDirectSerial);
     document.getElementById('btnConnectWebUSB').addEventListener('click', connectWebUSB);
-    document.getElementById('btnConnectSerial').addEventListener('click', connectWebSerial);
     document.getElementById('btnEnableSim').addEventListener('click', () => {
       setConnectionMode('sim');
       modal.classList.remove('active');
@@ -923,9 +922,9 @@
 
   function autoSetupScope() {
     logScpi('TX', ':AUTOSet');
-    state.timebaseIdx = 16; // 500us
+    state.timebaseIdx = 16;
     state.channels[1].enabled = true;
-    state.channels[1].voltIdx = 8; // 1V
+    state.channels[1].voltIdx = 8;
     state.channels[1].offset = 0;
     state.trigger.level = 0.5;
     state.running = true;
@@ -958,7 +957,6 @@
         logScpi('SYS', `Screenshot saved: ${res.filePath}`);
       }
     } else {
-      // Browser download fallback
       const link = document.createElement('a');
       link.download = defaultName;
       link.href = dataUrl;
@@ -998,17 +996,59 @@
     }
   }
 
-  // --- Hardware Connectivity (WebUSB & WebSerial) ---
+  // --- Hardware Connectivity: Direct COM Port Selection ---
+  async function connectDirectSerial() {
+    const portSel = document.getElementById('selComPort');
+    const port = portSel ? portSel.value : '';
+    const baudSel = document.getElementById('selBaudRate');
+    const baudRate = baudSel ? parseInt(baudSel.value) : 115200;
+
+    if (!port) {
+      logScpi('ERR', 'No COM port selected. Please plug in the USB-B cable and click Refresh.');
+      return;
+    }
+
+    logScpi('SYS', `Connecting to ${port} @ ${baudRate} baud...`);
+
+    if (window.electronAPI && window.electronAPI.serialConnect) {
+      try {
+        const res = await window.electronAPI.serialConnect(port, baudRate);
+        if (res && res.success) {
+          state.activePort = port;
+          setConnectionMode('serial', `${port} (${baudRate})`);
+          document.getElementById('connModal').classList.remove('active');
+          logScpi('RX', `Connected to ${port} at ${baudRate} baud.`);
+          queryScopeIdentity();
+        } else {
+          logScpi('ERR', `Failed to open ${port}: ${res ? res.error : 'Unknown error'}`);
+        }
+      } catch (err) {
+        logScpi('ERR', `Serial error: ${err.message}`);
+      }
+    } else {
+      // Browser fallback (WebSerial)
+      try {
+        const p = await navigator.serial.requestPort();
+        await p.open({ baudRate });
+        setConnectionMode('serial', `SERIAL PORT (${baudRate})`);
+        document.getElementById('connModal').classList.remove('active');
+        logScpi('RX', 'Connected via WebSerial.');
+        queryScopeIdentity();
+      } catch (e) {
+        logScpi('ERR', `Serial link canceled or failed: ${e.message}`);
+      }
+    }
+  }
+
   async function connectWebUSB() {
     try {
       logScpi('SYS', 'Requesting USB device link (USBTMC / Tenma)...');
-      // Standard USB filters for Tenma & Uni-Trend USB-B ports
       const device = await navigator.usb.requestDevice({
         filters: [
-          { vendorId: 0x5656 }, // Uni-Trend / Tenma
-          { vendorId: 0x4348 }, // Winchiphead / WCH USB
-          { vendorId: 0x0483 }, // STM32 USB
-          { vendorId: 0x1a86 }  // CH340
+          { vendorId: 0x5656 },
+          { vendorId: 0x4348 },
+          { vendorId: 0x0483 },
+          { vendorId: 0x1a86 }
         ]
       });
 
@@ -1027,41 +1067,6 @@
     }
   }
 
-  async function connectWebSerial() {
-    try {
-      logScpi('SYS', 'Opening Windows COM serial port dialog...');
-      const port = await navigator.serial.requestPort();
-      await port.open({ baudRate: 115200 });
-      serialPort = port;
-      setConnectionMode('webserial', 'COM PORT (115200)');
-      document.getElementById('connModal').classList.remove('active');
-      logScpi('RX', 'Connected via USB Serial Port.');
-      startSerialReader();
-      queryScopeIdentity();
-    } catch (err) {
-      logScpi('ERR', `Serial link error: ${err.message}`);
-    }
-  }
-
-  async function startSerialReader() {
-    if (!serialPort || !serialPort.readable) return;
-    const decoder = new TextDecoderStream();
-    serialPort.readable.pipeTo(decoder.writable);
-    const reader = decoder.readable.getReader();
-
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (value) {
-          logScpi('RX', value.trim());
-        }
-      }
-    } catch (err) {
-      logScpi('ERR', `Serial read error: ${err.message}`);
-    }
-  }
-
   function setConnectionMode(mode, label) {
     state.connType = mode;
     state.connected = mode !== 'sim';
@@ -1077,42 +1082,20 @@
     }
   }
 
-  // --- Hardware Device Scanner ---
-  async function refreshDetectedDevices() {
-    const listLog = document.getElementById('deviceListLog');
-    if (!listLog) return;
-
-    if (window.electronAPI && window.electronAPI.getUsbDevices) {
-      try {
-        const devices = await window.electronAPI.getUsbDevices();
-        if (devices && devices.length > 0) {
-          listLog.innerHTML = devices.slice(0, 8).map(d => `<div>• ${d.FriendlyName || 'USB Device'}</div>`).join('');
-        } else {
-          listLog.textContent = 'No USB scope detected yet. Please plug in USB-B wire.';
-        }
-      } catch (e) {
-        listLog.textContent = 'Ready for connection.';
-      }
-    } else {
-      listLog.textContent = 'Plug in your Tenma scope and click PAIR USB or SELECT COM.';
-    }
-  }
-
-  // --- SCPI Protocol Engine & Command Dispatcher ---
   function sendHardwareCommand(cmd) {
-    if (state.connType === 'webserial' && serialPort && serialPort.writable) {
-      const encoder = new TextEncoder();
-      const writer = serialPort.writable.getWriter();
-      writer.write(encoder.encode(cmd + '\n'));
-      writer.releaseLock();
+    if (state.connType === 'serial' && window.electronAPI && window.electronAPI.serialSend) {
+      window.electronAPI.serialSend(cmd);
     }
   }
 
   function queryScopeIdentity() {
     logScpi('TX', '*IDN?');
+    sendHardwareCommand('*IDN?');
     setTimeout(() => {
-      logScpi('RX', 'TENMA,72-8737,SN-8737-2026,V2.04 (4-CH 200MHz DSO)');
-    }, 150);
+      if (state.connType === 'sim') {
+        logScpi('RX', 'TENMA,72-8737,SN-8737-2026,V2.04 (4-CH 200MHz DSO)');
+      }
+    }, 200);
   }
 
   function sendScpiFromInput() {
@@ -1138,7 +1121,7 @@
     } else if (upper === ':STOP' || upper === 'STOP') {
       if (state.running) toggleRunStop();
       logScpi('RX', 'OK');
-    } else if (upper === ':AUTOS' || upper === ':AUTOS?' || upper === ':AUTOS' || upper === ':AUTOSet') {
+    } else if (upper === ':AUTOS' || upper === ':AUTOS?' || upper === ':AUTOSet') {
       autoSetupScope();
     } else if (upper.startsWith(':MEAS:VOLT?')) {
       setTimeout(() => logScpi('RX', state.measurements.vpp || '2.50V'), 60);
@@ -1175,7 +1158,6 @@
     logBox.scrollTop = logBox.scrollHeight;
   }
 
-  // --- Formatting Helpers ---
   function formatTime(s) {
     if (s >= 1) return `${s.toFixed(2)} s`;
     if (s >= 1e-3) return `${(s * 1e3).toFixed(2)} ms`;
@@ -1193,7 +1175,6 @@
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // Run when DOM is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {

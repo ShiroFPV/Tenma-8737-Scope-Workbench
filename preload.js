@@ -11,10 +11,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveCSV: (data, defaultName) => ipcRenderer.invoke('save-csv', { data, defaultName }),
   saveImage: (dataUrl, defaultName) => ipcRenderer.invoke('save-image', { dataUrl, defaultName }),
 
-  // System Hardware Enumeration
-  getUsbDevices: () => ipcRenderer.invoke('get-usb-devices'),
-  getComPorts: () => ipcRenderer.invoke('get-com-ports'),
+  // System Hardware Tools
+  openDeviceManager: () => ipcRenderer.invoke('open-device-manager'),
+  getComPortsDetailed: () => ipcRenderer.invoke('get-com-ports-detailed'),
 
-  // Direct USB / Serial Port selection helper for WebSerial/WebUSB
-  requestCustomPort: () => ipcRenderer.invoke('request-custom-port')
+  // Native Serial Bridge
+  serialConnect: (port, baudRate) => ipcRenderer.invoke('serial-connect', { port, baudRate }),
+  serialSend: (command) => ipcRenderer.invoke('serial-send', command),
+  serialDisconnect: () => ipcRenderer.invoke('serial-disconnect'),
+  onSerialData: (callback) => {
+    ipcRenderer.on('serial-rx-data', (event, data) => callback(data));
+  },
+  onSerialDisconnected: (callback) => {
+    ipcRenderer.on('serial-disconnected', () => callback());
+  }
 });
