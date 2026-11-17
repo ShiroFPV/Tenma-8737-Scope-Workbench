@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // System Hardware Tools
   openDeviceManager: () => ipcRenderer.invoke('open-device-manager'),
   getComPortsDetailed: () => ipcRenderer.invoke('get-com-ports-detailed'),
+  getAllUsbDevices: () => ipcRenderer.invoke('get-all-usb-devices'),
 
   // Native Serial Bridge
   serialConnect: (port, baudRate) => ipcRenderer.invoke('serial-connect', { port, baudRate }),

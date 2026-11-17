@@ -12,7 +12,7 @@ function createWindow() {
     height: 920,
     minWidth: 1100,
     minHeight: 720,
-    frame: false, // Frameless for custom ShiroFPV titlebar & window controls
+    frame: false,
     backgroundColor: '#1b1c1f',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -28,7 +28,6 @@ function createWindow() {
   sess.setPermissionCheckHandler(() => true);
   sess.setDevicePermissionHandler(() => true);
 
-  // WebSerial port selector handler
   sess.on('select-serial-port', (event, portList, webContents, callback) => {
     event.preventDefault();
     if (portList && portList.length > 0) {
@@ -38,7 +37,6 @@ function createWindow() {
     }
   });
 
-  // WebUSB device selector handler
   sess.on('select-usb-device', (event, details, callback) => {
     event.preventDefault();
     if (details.deviceList && details.deviceList.length > 0) {
@@ -56,7 +54,7 @@ function createWindow() {
   });
 }
 
-// Window management IPC
+// Window controls
 ipcMain.on('window-minimize', () => {
   if (mainWindow) mainWindow.minimize();
 });
@@ -76,13 +74,12 @@ ipcMain.handle('window-is-maximized', () => {
   return mainWindow ? mainWindow.isMaximized() : false;
 });
 
-// Launch Windows Device Manager
 ipcMain.handle('open-device-manager', () => {
   exec('devmgmt.msc');
   return true;
 });
 
-// Native Save File Dialogs
+// File save dialogs
 ipcMain.handle('save-csv', async (event, { data, defaultName }) => {
   if (!mainWindow) return { success: false };
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
@@ -126,32 +123,73 @@ ipcMain.handle('save-image', async (event, { dataUrl, defaultName }) => {
   }
 });
 
-// Detailed COM Port Enumeration for Windows 11
+// Comprehensive Windows COM Port Scanner
 ipcMain.handle('get-com-ports-detailed', () => {
   return new Promise((resolve) => {
-    const psScript = `
-      $ports = Get-CimInstance Win32_PnPEntity | Where-Object { $_.PNPClass -eq 'Ports' -or $_.Name -match '\\(COM\\d+\\)' } | Select-Object Name, DeviceID, Manufacturer
-      if ($ports) { $ports | ConvertTo-Json } else { '[]' }
-    `;
-    exec(`powershell -NoProfile -Command "${psScript.replace(/\r?\n/g, ' ')}"`, (err, stdout) => {
-      if (err) {
+    const cmd = 'powershell -NoProfile -Command "Get-PnpDevice -Class Ports | Select-Object FriendlyName, InstanceId, Status, Present | ConvertTo-Json"';
+    exec(cmd, (err, stdout) => {
+      let ports = [];
+      if (!err && stdout) {
+        try {
+          const parsed = JSON.parse(stdout);
+          const list = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+          ports = list.map(p => {
+            const match = p.FriendlyName ? p.FriendlyName.match(/\((COM\d+)\)/i) : null;
+            return {
+              port: match ? match[1].toUpperCase() : (p.FriendlyName || 'COM1'),
+              name: p.FriendlyName || 'Serial Device',
+              present: p.Present === true,
+              status: p.Status || 'Unknown'
+            };
+          });
+        } catch (e) {}
+      }
+
+      // Also query registry HKLM\HARDWARE\DEVICEMAP\SERIALCOMM for active COM mappings
+      exec('reg query HKLM\\HARDWARE\\DEVICEMAP\\SERIALCOMM', (regErr, regOut) => {
+        if (!regErr && regOut) {
+          const matches = regOut.match(/REG_SZ\s+(COM\d+)/gi);
+          if (matches) {
+            matches.forEach(m => {
+              const portName = m.replace(/REG_SZ\s+/i, '').trim().toUpperCase();
+              const existing = ports.find(p => p.port === portName);
+              if (existing) {
+                existing.present = true;
+                existing.status = 'OK';
+              } else {
+                ports.push({
+                  port: portName,
+                  name: `${portName} (Active Serial Port)`,
+                  present: true,
+                  status: 'OK'
+                });
+              }
+            });
+          }
+        }
+
+        if (ports.length === 0) {
+          ports.push({ port: 'COM1', name: 'COM1 (Communications Port)', present: true, status: 'OK' });
+        }
+
+        resolve(ports);
+      });
+    });
+  });
+});
+
+// Query all connected USB & Hardware devices
+ipcMain.handle('get-all-usb-devices', () => {
+  return new Promise((resolve) => {
+    const cmd = 'powershell -NoProfile -Command "Get-PnpDevice -PresentOnly | Where-Object { $_.Class -in @(\'Ports\',\'USB\',\'USBDevice\',\'Unknown\') -or $_.InstanceId -like \'*USB*\' } | Select-Object FriendlyName, InstanceId, Class, Status | ConvertTo-Json"';
+    exec(cmd, (err, stdout) => {
+      if (err || !stdout) {
         resolve([]);
         return;
       }
       try {
         const parsed = JSON.parse(stdout);
-        const list = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
-        // Extract COM port number e.g. "COM3"
-        const formatted = list.map(p => {
-          const match = p.Name ? p.Name.match(/\((COM\d+)\)/) : null;
-          return {
-            port: match ? match[1] : p.Name,
-            name: p.Name || 'Serial Device',
-            manufacturer: p.Manufacturer || 'Unknown',
-            deviceId: p.DeviceID || ''
-          };
-        });
-        resolve(formatted);
+        resolve(Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []));
       } catch (e) {
         resolve([]);
       }
@@ -177,7 +215,6 @@ ipcMain.handle('serial-connect', (event, { port, baudRate }) => {
         exit 1
       }
 
-      # Standard input listener loop
       $reader = [System.IO.StreamReader]::new([System.Console]::OpenStandardInput())
       while ($sp.IsOpen) {
         if ($reader.Peek() -ge 0) {
@@ -212,7 +249,6 @@ ipcMain.handle('serial-connect', (event, { port, baudRate }) => {
         }
       }
 
-      // Relay incoming lines to renderer
       const lines = text.split('\n');
       for (const line of lines) {
         if (line.startsWith('RX:')) {
@@ -238,7 +274,6 @@ ipcMain.handle('serial-connect', (event, { port, baudRate }) => {
       }
     });
 
-    // Timeout fallback (3 seconds)
     setTimeout(() => {
       if (!resolved) {
         resolved = true;

@@ -63,8 +63,8 @@
     singleArm: false,
     activeChannel: 1,
     timebaseIdx: 16, // 500 μs
-    horizPos: 0.0, // seconds
-    sampleRate: 2.0e9, // 2 GSa/s
+    horizPos: 0.0,
+    sampleRate: 2.0e9,
     acqMode: 'NORMAL',
     simSignal: 'drone_rpm',
 
@@ -115,7 +115,6 @@
 
   let usbDevice = null;
 
-  // Canvas context
   const scopeCanvas = document.getElementById('scopeCanvas');
   const scopeCtx = scopeCanvas.getContext('2d');
   const fftCanvas = document.getElementById('fftCanvas');
@@ -134,11 +133,11 @@
     logScpi('SYS', 'Tenma 8737 Scope Workbench initialized.');
     logScpi('SYS', 'ShiroFPV Hardware Interface v1.0.0 (Windows 11). Ready.');
 
-    // Start render and acquisition loop
     startLoop();
 
-    // Populate COM ports
+    // Populate COM ports and USB diagnostics
     refreshComPortDropdown();
+    refreshHardwareDiagnostics();
 
     // Setup serial listener
     if (window.electronAPI && window.electronAPI.onSerialData) {
@@ -152,7 +151,7 @@
     }
   }
 
-  // --- Native Window Titlebar Controls ---
+  // --- Window Titlebar Controls ---
   function setupWindowControls() {
     const minBtn = document.getElementById('winMinBtn');
     const maxBtn = document.getElementById('winMaxBtn');
@@ -199,7 +198,7 @@
 
   // --- Main Animation & Acquisition Loop ---
   function startLoop() {
-    function frame(timestamp) {
+    function frame() {
       if (state.running) {
         simTime += 0.016;
         acquireWaveformChunk();
@@ -218,7 +217,7 @@
     animFrameId = requestAnimationFrame(frame);
   }
 
-  // --- Waveform Generation (Realistic Physical Hardware / Drone Simulation) ---
+  // --- Waveform Generation ---
   function acquireWaveformChunk() {
     const numPoints = 1000;
     const timeScale = TIMEBASE_SCALES[state.timebaseIdx].val;
@@ -682,30 +681,58 @@
           ports.forEach(p => {
             const opt = document.createElement('option');
             opt.value = p.port;
-            opt.textContent = `${p.port} - ${p.name}`;
+            const statusTag = p.present ? ' [Active]' : ' [Detected]';
+            opt.textContent = `${p.port} - ${p.name}${statusTag}`;
             sel.appendChild(opt);
           });
+
+          // Pre-select COM3 or first active
+          const preferred = ports.find(p => p.port === 'COM3' || p.present);
+          if (preferred) sel.value = preferred.port;
         } else {
-          sel.innerHTML = '<option value="">No COM ports detected (Plug in USB-B cable)</option>';
+          sel.innerHTML = '<option value="COM1">COM1 - Communications Port</option>';
         }
       } catch (err) {
-        sel.innerHTML = '<option value="COM1">COM1 - Default Serial Port</option>';
+        sel.innerHTML = '<option value="COM1">COM1 - Default Port</option>';
       }
     } else {
       sel.innerHTML = '<option value="COM1">COM1 - Default Port</option>';
+    }
+
+    refreshHardwareDiagnostics();
+  }
+
+  // --- Live Windows Hardware Diagnostics ---
+  async function refreshHardwareDiagnostics() {
+    const listEl = document.getElementById('hardwareDeviceList');
+    const countEl = document.getElementById('lblDeviceCount');
+    if (!listEl) return;
+
+    if (window.electronAPI && window.electronAPI.getAllUsbDevices) {
+      try {
+        const devs = await window.electronAPI.getAllUsbDevices();
+        if (countEl) countEl.textContent = `${devs.length} device(s) found`;
+        if (devs && devs.length > 0) {
+          listEl.innerHTML = devs.slice(0, 10).map(d => {
+            return `<div>• <strong style="color:var(--text-primary);">${escapeHtml(d.FriendlyName || 'Device')}</strong> <span style="color:var(--text-muted);">(${escapeHtml(d.Class || 'Unknown')})</span></div>`;
+          }).join('');
+        } else {
+          listEl.innerHTML = '<div style="color:var(--text-muted);">No external USB instruments currently active.</div>';
+        }
+      } catch (e) {
+        listEl.innerHTML = '<div>System ready.</div>';
+      }
     }
   }
 
   // --- UI Bindings & Event Listeners ---
   function bindUIEvents() {
-    // Header buttons
     document.getElementById('btnRunStop').addEventListener('click', toggleRunStop);
     document.getElementById('btnSingle').addEventListener('click', triggerSingleShot);
     document.getElementById('btnAutoSet').addEventListener('click', autoSetupScope);
     document.getElementById('btnScreenshot').addEventListener('click', captureScreenshot);
     document.getElementById('btnExportCSV').addEventListener('click', exportCSV);
 
-    // Connection Modal
     const modal = document.getElementById('connModal');
     document.getElementById('btnConnectModal').addEventListener('click', () => {
       refreshComPortDropdown();
@@ -717,7 +744,6 @@
     });
     document.getElementById('btnCloseModal').addEventListener('click', () => modal.classList.remove('active'));
 
-    // Driver Guide Modal
     const driverModal = document.getElementById('driverGuideModal');
     document.getElementById('btnDriverGuide').addEventListener('click', () => driverModal.classList.add('active'));
     document.getElementById('linkOpenDriverGuide').addEventListener('click', (e) => {
@@ -727,14 +753,12 @@
     document.getElementById('btnCloseDriverModal').addEventListener('click', () => driverModal.classList.remove('active'));
     document.getElementById('btnOkDriverGuide').addEventListener('click', () => driverModal.classList.remove('active'));
 
-    // Launch Device Manager button
     document.getElementById('btnLaunchDevMgr').addEventListener('click', () => {
       if (window.electronAPI && window.electronAPI.openDeviceManager) {
         window.electronAPI.openDeviceManager();
       }
     });
 
-    // COM Port Selector Actions
     document.getElementById('btnRefreshPorts').addEventListener('click', refreshComPortDropdown);
     document.getElementById('btnConnectSerialDirect').addEventListener('click', connectDirectSerial);
     document.getElementById('btnConnectWebUSB').addEventListener('click', connectWebUSB);
@@ -743,7 +767,6 @@
       modal.classList.remove('active');
     });
 
-    // Channel Selection Pills
     document.querySelectorAll('.chan-pill').forEach(pill => {
       pill.addEventListener('click', () => {
         document.querySelectorAll('.chan-pill').forEach(p => p.classList.remove('active'));
@@ -754,7 +777,6 @@
       });
     });
 
-    // Vertical Subsystem
     document.getElementById('chkChannelEnable').addEventListener('change', (e) => {
       state.channels[state.activeChannel].enabled = e.target.checked;
       updateHUD();
@@ -777,7 +799,6 @@
       state.channels[state.activeChannel].bwLimit = e.target.value;
     });
 
-    // Horizontal Subsystem
     document.getElementById('btnTimeUp').addEventListener('click', () => stepTimebase(1));
     document.getElementById('btnTimeDown').addEventListener('click', () => stepTimebase(-1));
     document.getElementById('rngHorizPos').addEventListener('input', (e) => {
@@ -789,7 +810,6 @@
       state.acqMode = e.target.value;
     });
 
-    // Trigger System
     document.getElementById('selTrigSource').addEventListener('change', (e) => {
       state.trigger.source = e.target.value;
       updateHUD();
@@ -814,13 +834,11 @@
       updateHUD();
     });
 
-    // Emulation Signal Selector
     document.getElementById('selSimSignal').addEventListener('change', (e) => {
       state.simSignal = e.target.value;
     });
     document.getElementById('btnResetScope').addEventListener('click', resetScopeDefaults);
 
-    // Dock Tabs
     document.querySelectorAll('.dock-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         document.querySelectorAll('.dock-tab').forEach(t => t.classList.remove('active'));
@@ -831,7 +849,6 @@
       });
     });
 
-    // Cursors & Math Checkboxes
     document.getElementById('chkShowCursors').addEventListener('change', (e) => {
       state.cursors.enabled = e.target.checked;
     });
@@ -839,14 +856,12 @@
       state.math.enabled = e.target.checked;
     });
 
-    // SCPI Terminal
     document.getElementById('btnSendScpi').addEventListener('click', sendScpiFromInput);
     document.getElementById('scpiCmdInput').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') sendScpiFromInput();
     });
   }
 
-  // --- Channel Controls Sync ---
   function renderChannelControls() {
     const ch = state.channels[state.activeChannel];
     document.getElementById('currentChLabel').textContent = `Channel ${state.activeChannel} Active`;
@@ -891,7 +906,6 @@
     document.getElementById('hudTrigger').textContent = `${state.trigger.source} ${state.trigger.level.toFixed(2)}V ${trigSlopeIcon}`;
   }
 
-  // --- Run / Stop & Single Controls ---
   function toggleRunStop() {
     state.running = !state.running;
     const badge = document.getElementById('runBadge');
@@ -946,7 +960,6 @@
     logScpi('RX', 'Oscilloscope reset to factory defaults.');
   }
 
-  // --- Native Windows 11 File Export (CSV & Screenshot) ---
   async function captureScreenshot() {
     const dataUrl = scopeCanvas.toDataURL('image/png');
     const defaultName = `tenma_scope_${Date.now()}.png`;
@@ -999,16 +1012,22 @@
   // --- Hardware Connectivity: Direct COM Port Selection ---
   async function connectDirectSerial() {
     const portSel = document.getElementById('selComPort');
-    const port = portSel ? portSel.value : '';
+    const manualInput = document.getElementById('txtManualPort');
+    let port = manualInput && manualInput.value.trim() ? manualInput.value.trim() : (portSel ? portSel.value : '');
+    
+    // Auto format e.g. "3" -> "COM3"
+    if (/^\d+$/.test(port)) port = `COM${port}`;
+    port = port.toUpperCase();
+
     const baudSel = document.getElementById('selBaudRate');
     const baudRate = baudSel ? parseInt(baudSel.value) : 115200;
 
     if (!port) {
-      logScpi('ERR', 'No COM port selected. Please plug in the USB-B cable and click Refresh.');
+      logScpi('ERR', 'No COM port selected. Please pick a port from the list or enter COM number.');
       return;
     }
 
-    logScpi('SYS', `Connecting to ${port} @ ${baudRate} baud...`);
+    logScpi('SYS', `Opening ${port} @ ${baudRate} baud...`);
 
     if (window.electronAPI && window.electronAPI.serialConnect) {
       try {
@@ -1017,25 +1036,13 @@
           state.activePort = port;
           setConnectionMode('serial', `${port} (${baudRate})`);
           document.getElementById('connModal').classList.remove('active');
-          logScpi('RX', `Connected to ${port} at ${baudRate} baud.`);
+          logScpi('RX', `Successfully connected to ${port} @ ${baudRate}.`);
           queryScopeIdentity();
         } else {
-          logScpi('ERR', `Failed to open ${port}: ${res ? res.error : 'Unknown error'}`);
+          logScpi('ERR', `Could not open ${port}: ${res ? res.error : 'Access error or device powered off'}`);
         }
       } catch (err) {
         logScpi('ERR', `Serial error: ${err.message}`);
-      }
-    } else {
-      // Browser fallback (WebSerial)
-      try {
-        const p = await navigator.serial.requestPort();
-        await p.open({ baudRate });
-        setConnectionMode('serial', `SERIAL PORT (${baudRate})`);
-        document.getElementById('connModal').classList.remove('active');
-        logScpi('RX', 'Connected via WebSerial.');
-        queryScopeIdentity();
-      } catch (e) {
-        logScpi('ERR', `Serial link canceled or failed: ${e.message}`);
       }
     }
   }

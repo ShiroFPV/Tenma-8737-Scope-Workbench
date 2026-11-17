@@ -426,14 +426,14 @@
 
   <!-- Connection Setup Modal -->
   <div class="modal-overlay" id="connModal">
-    <div class="modal-card" style="width: 540px;">
+    <div class="modal-card" style="width: 560px;">
       <div class="modal-title">
         <span>CONNECT TENMA 8737 SCOPE</span>
         <button class="btn btn-icon" id="btnCloseModal" style="border: none; background: transparent;">✕</button>
       </div>
       
       <p class="modal-desc">
-        Connect your Tenma oscilloscope to your Windows 11 PC via the rear <strong>USB-B</strong> cable. Select your connection interface:
+        Connect your Tenma oscilloscope to your Windows 11 PC via the <strong>USB-B</strong> cable. Select your interface below:
       </p>
 
       <div class="conn-option-list">
@@ -446,23 +446,23 @@
                 <span>USB Virtual COM Port (Serial)</span>
                 <span style="font-size: 10px; background: rgba(16, 185, 129, 0.2); color: var(--success); padding: 1px 6px; border-radius: 4px; font-weight: 600;">RECOMMENDED</span>
               </div>
-              <div class="conn-detail">Standard serial link. Communicates directly with the scope's USB-UART / CDC interface.</div>
+              <div class="conn-detail">Communicates over the oscilloscope's serial interface.</div>
             </div>
           </div>
 
           <!-- Direct COM Port Dropdown & Baud Selector -->
-          <div style="display: flex; gap: 8px; align-items: center; background: var(--bg-deep); padding: 8px; border-radius: 6px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; gap: 8px; align-items: center; background: var(--bg-deep); padding: 10px; border-radius: 6px; border: 1px solid var(--border-subtle);">
             <div style="flex: 1;">
-              <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">SELECT COM PORT</div>
+              <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 3px;">DETECTED COM PORT</div>
               <select class="select-custom" id="selComPort">
                 <option value="">Scanning COM ports...</option>
               </select>
             </div>
-            <button class="btn" id="btnRefreshPorts" title="Refresh available COM ports" style="margin-top: 14px; height: 30px; padding: 0 8px;">
+            <button class="btn" id="btnRefreshPorts" title="Refresh available COM ports" style="margin-top: 14px; height: 30px; padding: 0 10px;">
               ↻ Refresh
             </button>
             <div style="width: 90px;">
-              <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">BAUD RATE</div>
+              <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 3px;">BAUD RATE</div>
               <select class="select-custom" id="selBaudRate">
                 <option value="115200" selected>115200</option>
                 <option value="9600">9600</option>
@@ -472,9 +472,14 @@
             </div>
           </div>
 
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <a href="#" id="linkOpenDriverGuide" style="color: var(--ch2-color); font-size: 11px; text-decoration: none;">Don't see your COM port? Open Driver Guide →</a>
-            <button class="btn btn-primary" id="btnConnectSerialDirect">CONNECT TO COM</button>
+          <!-- Manual Port Input Option -->
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="text" class="scpi-input" id="txtManualPort" placeholder="Or enter COM port manually (e.g. COM3)" style="font-size: 11px; padding: 5px 10px; height: 30px;">
+            <button class="btn btn-primary" id="btnConnectSerialDirect" style="height: 30px; white-space: nowrap;">CONNECT COM</button>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+            <a href="#" id="linkOpenDriverGuide" style="color: var(--ch2-color); font-size: 11px; text-decoration: none;">Troubleshoot / Open Driver Guide →</a>
           </div>
         </div>
 
@@ -482,7 +487,7 @@
         <div class="conn-option" id="optWebUSB">
           <div>
             <div class="conn-name">Direct USB (USBTMC / WinUSB)</div>
-            <div class="conn-detail">For scopes using USB Test & Measurement Class or WinUSB (used with VISA / Zadig).</div>
+            <div class="conn-detail">For scopes registered as USB Test & Measurement Class (USBTMC) or WinUSB.</div>
           </div>
           <button class="btn" id="btnConnectWebUSB">PAIR USB</button>
         </div>
@@ -491,11 +496,24 @@
         <div class="conn-option" id="optSim">
           <div>
             <div class="conn-name">Built-in Hardware Simulator</div>
-            <div class="conn-detail">Test all scope controls, analyze DSHOT / gyro signals, FFT & measurements without physical hardware right now.</div>
+            <div class="conn-detail">Test all scope knobs, waveforms, DSHOT telemetry & FFT without physical hardware.</div>
           </div>
           <button class="btn" id="btnEnableSim">ACTIVATE</button>
         </div>
+
       </div>
+
+      <!-- Live Windows Hardware Diagnostic Box -->
+      <div style="background: var(--bg-deep); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px; font-family: var(--font-mono); font-size: 11px; max-height: 120px; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; color: var(--text-muted); font-size: 10px; margin-bottom: 4px;">
+          <span>ALL DETECTED WINDOWS HARDWARE DEVICES:</span>
+          <span id="lblDeviceCount">Scanning...</span>
+        </div>
+        <div id="hardwareDeviceList" style="color: var(--text-secondary); display: flex; flex-direction: column; gap: 2px;">
+          Scanning system devices...
+        </div>
+      </div>
+
     </div>
   </div>
 
