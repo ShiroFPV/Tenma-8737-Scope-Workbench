@@ -160,10 +160,12 @@
 
   function currentVScale(chNum) {
     const ch = state.channels[chNum];
+    if (ch.vScale !== undefined && ch.vScale > 0) return ch.vScale;
     return VOLT_STEPS[ch.vIdx] * (ch.probe / 10);
   }
 
   function currentTScale() {
+    if (state.horiz.tScale !== undefined && state.horiz.tScale > 0) return state.horiz.tScale;
     return TIME_STEPS[state.horiz.tIdx];
   }
 
@@ -557,8 +559,14 @@
   function stepVScale(delta) {
     const ch = state.channels[state.activeChannel];
     ch.vIdx = Math.max(0, Math.min(VOLT_STEPS.length - 1, ch.vIdx + delta));
+    delete ch.vScale;
     const v = currentVScale(state.activeChannel);
-    sendScpi(`:CHAN${state.activeChannel}:SCAL ${v.toExponential(3)}`);
+    if (state.isUniTrend && state.connType === 'usb' && usbDevice) {
+      sendUniTVendorControl(usbDevice, 0xb1, delta > 0 ? 0x36 : 0x35, 0);
+      setTimeout(pollUniTrendUsb, 80);
+    } else {
+      sendScpi(`:CHAN${state.activeChannel}:SCAL ${v.toExponential(3)}`);
+    }
     syncVerticalUI();
     syncChannelStrip();
     updateCursorReadouts();
@@ -567,7 +575,13 @@
 
   function stepHScale(delta) {
     state.horiz.tIdx = Math.max(0, Math.min(TIME_STEPS.length - 1, state.horiz.tIdx + delta));
-    sendScpi(`:TIM:MAIN:SCAL ${currentTScale().toExponential(3)}`);
+    delete state.horiz.tScale;
+    if (state.isUniTrend && state.connType === 'usb' && usbDevice) {
+      sendUniTVendorControl(usbDevice, 0xb1, delta > 0 ? 0x39 : 0x3a, 0);
+      setTimeout(pollUniTrendUsb, 80);
+    } else {
+      sendScpi(`:TIM:MAIN:SCAL ${currentTScale().toExponential(3)}`);
+    }
     syncHorizontalUI();
     updateCursorReadouts();
     drawScope();
@@ -879,6 +893,66 @@
     }
   }
 
+  // Uni-Trend / Tenma UTD2000 Protocol Definitions
+  const UNI_T_Y_RANGE = [2e-3, 5e-3, 10e-3, 20e-3, 50e-3, 100e-3, 200e-3, 500e-3, 1.0, 2.0, 5.0];
+  const UNI_T_X_RANGE = [
+    0, 20e-10, 5e-9, 10e-9, 20e-9, 50e-9, 100e-9, 200e-9, 500e-9,
+    1e-6, 2e-6, 5e-6, 10e-6, 20e-6, 50e-6, 100e-6, 200e-6, 500e-6,
+    1e-3, 2e-3, 5e-3, 10e-3, 20e-3, 50e-3, 100e-3, 200e-3, 500e-3,
+    1.0, 2.0, 5.0, 10.0, 20.0, 50.0
+  ];
+  const UNI_T_COUPLING = ['DC', 'AC', 'GND'];
+
+  function findBulkInEndpoint(device) {
+    if (!device || !device.configuration) return 2;
+    for (const iface of device.configuration.interfaces) {
+      for (const alt of iface.alternates) {
+        for (const ep of alt.endpoints) {
+          if (ep.direction === 'in' && ep.type === 'bulk') {
+            return ep.endpointNumber;
+          }
+        }
+      }
+    }
+    return 2;
+  }
+
+  function findBulkOutEndpoint(device) {
+    if (!device || !device.configuration) return 6;
+    for (const iface of device.configuration.interfaces) {
+      for (const alt of iface.alternates) {
+        for (const ep of alt.endpoints) {
+          if (ep.direction === 'out' && ep.type === 'bulk') {
+            return ep.endpointNumber;
+          }
+        }
+      }
+    }
+    return 6;
+  }
+
+  async function sendUniTVendorControl(device, request, value, index = 0) {
+    if (!device) return null;
+    const recipients = ['interface', 'endpoint', 'device'];
+    for (const rec of recipients) {
+      try {
+        const res = await device.controlTransferOut({
+          requestType: 'vendor',
+          recipient: rec,
+          request: request,
+          value: value,
+          index: index
+        }, new Uint8Array(0));
+        if (res && (res.status === 'ok' || res.bytesWritten !== undefined)) {
+          return res;
+        }
+      } catch (err) {
+        // Try next recipient
+      }
+    }
+    return null;
+  }
+
   async function connectDirectUsb() {
     const errBox = document.getElementById('connErrorMsg');
     errBox.style.display = 'none';
@@ -908,10 +982,26 @@
       await device.claimInterface(0);
       usbDevice = device;
 
-      const label = device.productName || `USB ${device.vendorId.toString(16).toUpperCase()}:${device.productId.toString(16).toUpperCase()}`;
+      const isUniTrend = device.vendorId === 0x5656 || device.productId === 0x0834;
+      state.isUniTrend = isUniTrend;
+
+      const label = device.productName || (isUniTrend ? 'DSO' : `USB ${device.vendorId.toString(16).toUpperCase()}:${device.productId.toString(16).toUpperCase()}`);
+      if (isUniTrend) {
+        state.idn = 'TENMA 8737 (Uni-Trend DSO Bulk Mode)';
+      }
+
       onConnected('usb', label);
       document.getElementById('connModal').classList.remove('open');
-      sendScpi('*IDN?', true);
+
+      if (isUniTrend) {
+        document.getElementById('idnReadout').textContent = state.idn;
+        logScpi('SYS', 'Initializing Tenma / Uni-Trend DSO protocol. Activating remote mode...');
+        // Enter far mode (0xb1, 0xf0)
+        await sendUniTVendorControl(device, 0xb1, 0xf0, 0);
+        setTimeout(pollUniTrendUsb, 50);
+      } else {
+        sendScpi('*IDN?', true);
+      }
     } catch (err) {
       logScpi('ERR', `Direct USB link failed: ${err.message}`);
       errBox.textContent = `Direct USB failed: ${err.message}`;
@@ -937,7 +1027,12 @@
       await window.electronAPI.serialDisconnect();
     }
     if (usbDevice) {
-      try { await usbDevice.close(); } catch (e) {}
+      try {
+        if (state.isUniTrend) {
+          await sendUniTVendorControl(usbDevice, 0xb1, 0xf1, 0); // Leave remote mode
+        }
+        await usbDevice.close();
+      } catch (e) {}
       usbDevice = null;
     }
     state.connected = false;
@@ -1014,16 +1109,27 @@
     if (state.connType === 'serial' && window.electronAPI && window.electronAPI.serialSend) {
       await window.electronAPI.serialSend(cmd);
     } else if (state.connType === 'usb' && usbDevice) {
+      if (state.isUniTrend) {
+        let btnCode = null;
+        if (cmd === ':AUT') btnCode = 0x29; // BTN_AUTO
+        else if (cmd === ':RUN' || cmd === ':STOP') btnCode = 0x28; // BTN_RUN_STOP
+        else if (cmd === ':TFOR') btnCode = 0x30; // FORCE_TRIG
+        else if (cmd.startsWith(':TRIG:EDGE:LEV')) btnCode = 0x2f; // SET_TO_50
+        if (btnCode !== null) {
+          await sendUniTVendorControl(usbDevice, 0xb1, btnCode, 0);
+          setTimeout(pollUniTrendUsb, 80);
+          return;
+        }
+      }
       try {
         const enc = new TextEncoder().encode(cmd + '\n');
-        const iface = usbDevice.configuration.interfaces[0].alternate;
-        const outEp = iface.endpoints.find(ep => ep.direction === 'out');
-        const inEp = iface.endpoints.find(ep => ep.direction === 'in');
+        const inEp = findBulkInEndpoint(usbDevice);
+        const outEp = findBulkOutEndpoint(usbDevice);
         if (outEp) {
-          await usbDevice.transferOut(outEp.endpointNumber, enc);
+          await usbDevice.transferOut(outEp, enc);
         }
         if (cmd.endsWith('?') && inEp) {
-          const res = await usbDevice.transferIn(inEp.endpointNumber, 16384);
+          const res = await usbDevice.transferIn(inEp, 16384);
           if (res && res.data && res.data.byteLength > 0) {
             flashLed('ledRx', 'rx-flash');
             const uint8 = new Uint8Array(res.data.buffer);
@@ -1156,12 +1262,152 @@
     drawFFT();
   }
 
+  let isFetchingUsb = false;
+  async function pollUniTrendUsb() {
+    if (!usbDevice || isFetchingUsb || !state.running) return;
+    isFetchingUsb = true;
+    try {
+      // Step 1: Request waveform dump
+      await sendUniTVendorControl(usbDevice, 0xb1, 0xe1, 0);
+      await new Promise(r => setTimeout(r, 25));
+
+      // Step 2: Arm bulk transfer on endpoint 2
+      await sendUniTVendorControl(usbDevice, 0xb0, 0x01, 2);
+
+      // Step 3: Bulk read 1024 bytes from bulk IN endpoint
+      const inEp = findBulkInEndpoint(usbDevice);
+      const res = await usbDevice.transferIn(inEp, 1024);
+
+      // Step 4: Acknowledge / recovery handshake
+      await sendUniTVendorControl(usbDevice, 0xb0, 0xdc, 0);
+
+      if (res && res.status === 'ok' && res.data && res.data.byteLength >= 1024) {
+        flashLed('ledRx', 'rx-flash');
+        const raw = new Uint8Array(res.data.buffer);
+        parseUniTWaveformBuffer(raw);
+      }
+    } catch (err) {
+      console.warn('Uni-T USB poll error:', err);
+    } finally {
+      isFetchingUsb = false;
+    }
+  }
+
+  function parseUniTWaveformBuffer(raw) {
+    if (!raw || raw.length < 1024) return;
+
+    // CH1 Parameters from header
+    const ySenseIdx1 = raw[5];
+    const yProbeIdx1 = raw[19];
+    const xSenseIdx1 = raw[10];
+    const yPos1 = raw[6];
+    const inverted1 = Boolean(raw[9]);
+    const coupIdx1 = raw[12];
+    const bwLimit1 = Boolean(raw[15]);
+
+    // CH2 Parameters from header
+    const ySenseIdx2 = raw[37];
+    const yProbeIdx2 = raw[51];
+    const xSenseIdx2 = raw[42];
+    const yPos2 = raw[38];
+    const inverted2 = Boolean(raw[41]);
+    const coupIdx2 = raw[44];
+    const bwLimit2 = Boolean(raw[47]);
+
+    // Channel state from byte 2
+    const chState = raw[2];
+    const ch1Active = (chState & 0x01) !== 0 || chState === 0 || chState === 2;
+    const ch2Active = (chState & 0x02) !== 0 || chState === 1 || chState === 2;
+
+    const probe1 = Math.pow(10, Math.min(3, yProbeIdx1 || 0));
+    const probe2 = Math.pow(10, Math.min(3, yProbeIdx2 || 0));
+
+    const vDiv1 = (UNI_T_Y_RANGE[ySenseIdx1] !== undefined ? UNI_T_Y_RANGE[ySenseIdx1] : 1.0) * probe1;
+    const vDiv2 = (UNI_T_Y_RANGE[ySenseIdx2] !== undefined ? UNI_T_Y_RANGE[ySenseIdx2] : 1.0) * probe2;
+
+    const tDiv = (UNI_T_X_RANGE[xSenseIdx1] !== undefined && UNI_T_X_RANGE[xSenseIdx1] > 0) ? UNI_T_X_RANGE[xSenseIdx1] : 500e-6;
+
+    // Sync state
+    const ch1 = state.channels[1];
+    ch1.enabled = ch1Active;
+    ch1.vScale = vDiv1;
+    ch1.probe = probe1;
+    ch1.invert = inverted1;
+    ch1.coupling = UNI_T_COUPLING[coupIdx1] || 'DC';
+    ch1.bwLimit = bwLimit1 ? '20M' : 'OFF';
+
+    const ch2 = state.channels[2];
+    ch2.enabled = ch2Active;
+    ch2.vScale = vDiv2;
+    ch2.probe = probe2;
+    ch2.invert = inverted2;
+    ch2.coupling = UNI_T_COUPLING[coupIdx2] || 'DC';
+    ch2.bwLimit = bwLimit2 ? '20M' : 'OFF';
+
+    state.horiz.tScale = tDiv;
+
+    // Update nearest indices in VOLT_STEPS / TIME_STEPS for UI
+    const nearestV1 = VOLT_STEPS.findIndex(v => Math.abs(v - vDiv1 / probe1) < 1e-4);
+    if (nearestV1 !== -1) ch1.vIdx = nearestV1;
+    const nearestV2 = VOLT_STEPS.findIndex(v => Math.abs(v - vDiv2 / probe2) < 1e-4);
+    if (nearestV2 !== -1) ch2.vIdx = nearestV2;
+    const nearestT = TIME_STEPS.findIndex(t => Math.abs(t - tDiv) < 1e-9);
+    if (nearestT !== -1) state.horiz.tIdx = nearestT;
+
+    // Extract samples (25 sample counts per vertical division)
+    const countPerDiv = 25.0;
+    const center1 = (yPos1 > 0 && yPos1 < 255) ? yPos1 : 128;
+    const center2 = (yPos2 > 0 && yPos2 < 255) ? yPos2 : 128;
+
+    if (ch1Active) {
+      const s1 = new Float32Array(250);
+      for (let i = 0; i < 250; i++) {
+        const b = raw[516 + i];
+        let v = ((b - center1) / countPerDiv) * vDiv1;
+        if (inverted1) v = -v;
+        s1[i] = v;
+      }
+      state.waveforms[1] = s1;
+    } else {
+      state.waveforms[1] = null;
+    }
+
+    if (ch2Active) {
+      const s2 = new Float32Array(250);
+      for (let i = 0; i < 250; i++) {
+        const b = raw[770 + i];
+        let v = ((b - center2) / countPerDiv) * vDiv2;
+        if (inverted2) v = -v;
+        s2[i] = v;
+      }
+      state.waveforms[2] = s2;
+    } else {
+      state.waveforms[2] = null;
+    }
+
+    const activeWave = state.waveforms[state.activeChannel] || state.waveforms[1];
+    if (activeWave) {
+      const totalTime = tDiv * 10;
+      state.acq.sampleRate = activeWave.length / totalTime;
+      state.trigger.status = "TRIG'D";
+    }
+
+    syncAllUI();
+    renderMeasurements();
+    drawScope();
+    drawFFT();
+  }
+
   function startPolling() {
     stopPolling();
     if (state.acq.pollIntervalMs <= 0) return;
     pollTimer = setInterval(() => {
       if (!state.connected || !state.running) return;
-      requestNextEnabledChannel();
+      if (state.connType === 'usb' && state.isUniTrend && usbDevice) {
+        pollUniTrendUsb();
+      } else {
+        requestNextEnabledChannel();
+      }
     }, state.acq.pollIntervalMs);
   }
 
@@ -1986,6 +2232,9 @@
       modalDisc.style.display = 'inline-flex';
       banner.classList.add('hidden');
       statusText.textContent = `Interface: ${state.portLabel}`;
+      if (state.idn) {
+        document.getElementById('idnReadout').textContent = state.idn;
+      }
     } else {
       led.className = 'led';
       lbl.textContent = 'OFFLINE';
