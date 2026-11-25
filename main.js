@@ -47,10 +47,15 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'public', 'index.html'));
+  mainWindow.webContents.openDevTools({ mode: 'detach' });
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.key === 'F12') {
       mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+    if ((input.control && input.key.toLowerCase() === 'r') || input.key === 'F5') {
+      mainWindow.webContents.reloadIgnoringCache();
       event.preventDefault();
     }
   });
@@ -363,9 +368,72 @@ ipcMain.handle('serial-disconnect', () => {
   return true;
 });
 
+// Native WinUSB Bridge Process
+let bridgeProcess = null;
+let bridgeCallbacks = [];
+
+function ensureBridge() {
+  if (bridgeProcess) return bridgeProcess;
+  
+  const bridgePath = 'C:\\Users\\Shiro\\AppData\\Local\\Programs\\TenmaScopeStudio\\resources\\tenma_bridge.exe';
+  if (!fs.existsSync(bridgePath)) return null;
+
+  bridgeProcess = spawn(bridgePath, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+  let buffer = '';
+
+  bridgeProcess.stdout.on('data', (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // keep last incomplete line
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed === 'READY') continue;
+      if (bridgeCallbacks.length > 0) {
+        const cb = bridgeCallbacks.shift();
+        cb(trimmed);
+      }
+    }
+  });
+
+  bridgeProcess.on('exit', () => {
+    bridgeProcess = null;
+  });
+
+  return bridgeProcess;
+}
+
+ipcMain.handle('bridge-cmd', (event, hexVal) => {
+  const p = ensureBridge();
+  if (!p) return false;
+  return new Promise((resolve) => {
+    bridgeCallbacks.push((res) => resolve(res === 'OK:CMD'));
+    p.stdin.write('cmd:' + hexVal + '\n');
+  });
+});
+
+ipcMain.handle('bridge-sample', (event) => {
+  const p = ensureBridge();
+  if (!p) return null;
+  return new Promise((resolve) => {
+    bridgeCallbacks.push((res) => {
+      if (res.startsWith('DATA:')) {
+        const b64 = res.substring(5);
+        resolve(b64);
+      } else {
+        resolve(null);
+      }
+    });
+    p.stdin.write('sample\n');
+  });
+});
+
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
+  if (bridgeProcess) {
+    try { bridgeProcess.stdin.write('quit\n'); bridgeProcess.kill(); } catch (e) {}
+    bridgeProcess = null;
+  }
   disconnectSerial();
   if (process.platform !== 'darwin') app.quit();
 });

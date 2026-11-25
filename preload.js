@@ -33,5 +33,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onComPortsChanged: (callback) => {
     ipcRenderer.on('com-ports-changed', (event, ports) => callback(ports));
-  }
+  },
+
+  // Native Hardware Bridge
+  bridgeSendCmd: (hexVal) => ipcRenderer.invoke('bridge-cmd', hexVal),
+  bridgeGetSample: () => ipcRenderer.invoke('bridge-sample')
 });

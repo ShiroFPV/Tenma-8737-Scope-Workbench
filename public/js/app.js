@@ -235,13 +235,29 @@
     document.getElementById('btnOpenConn').addEventListener('click', openConnModal);
     document.getElementById('btnDisconnectQuick').addEventListener('click', disconnectHardware);
 
-    document.getElementById('btnRunStop').addEventListener('click', toggleRunStop);
-    document.getElementById('btnSingle').addEventListener('click', triggerSingle);
+    document.getElementById('btnRunStop').addEventListener('click', () => {
+      if (window.electronAPI && window.electronAPI.bridgeSendCmd) {
+        window.electronAPI.bridgeSendCmd('28');
+      }
+      toggleRunStop();
+    });
+    document.getElementById('btnSingle').addEventListener('click', () => {
+      if (window.electronAPI && window.electronAPI.bridgeSendCmd) {
+        window.electronAPI.bridgeSendCmd('28');
+      }
+      triggerSingle();
+    });
     document.getElementById('btnAutoset').addEventListener('click', () => {
+      if (window.electronAPI && window.electronAPI.bridgeSendCmd) {
+        window.electronAPI.bridgeSendCmd('29');
+      }
       sendScpi(':AUT');
       logScpi('SYS', 'Autoset command sent to instrument.');
     });
     document.getElementById('btnForceTrig').addEventListener('click', () => {
+      if (window.electronAPI && window.electronAPI.bridgeSendCmd) {
+        window.electronAPI.bridgeSendCmd('30');
+      }
       sendScpi(':TFOR');
       if (state.connected) requestActiveWaveforms();
     });
@@ -982,6 +998,8 @@
       }
       await device.claimInterface(0);
       usbDevice = device;
+      window.usbDevice = device;
+      window.scopeState = state;
 
       const isUniTrend = device.vendorId === 0x5656 || device.productId === 0x0834;
       state.isUniTrend = isUniTrend;
@@ -1264,49 +1282,44 @@
   }
 
   let isFetchingUsb = false;
+  let lastPollLogTime = 0;
   async function pollUniTrendUsb() {
     if (!usbDevice || isFetchingUsb || !state.running) return;
     isFetchingUsb = true;
     try {
-      let rawData = null;
-      // Step 1: Request waveform dump
+      // Step 1: Request waveform dump (0xb1, 0xe1)
       await sendUniTVendorControl(usbDevice, 0xb1, 0xe1, 0);
       await new Promise(r => setTimeout(r, 30));
 
       // Step 2: Arm bulk transfer on endpoint 2
       await sendUniTVendorControl(usbDevice, 0xb0, 0x01, 2);
 
-      // Step 3: Read bulk data from Endpoint 2 (accumulate 1024 bytes)
-      const inEp = 2;
-      const chunks = [];
-      let totalBytes = 0;
-      for (let attempt = 0; attempt < 3 && totalBytes < 1024; attempt++) {
-        try {
-          const res = await usbDevice.transferIn(inEp, 1024 - totalBytes);
-          if (res && res.data && res.data.byteLength > 0) {
-            const u8 = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
-            chunks.push(u8);
-            totalBytes += u8.length;
-          } else {
-            break;
-          }
-        } catch (e) {
-          break;
-        }
+      let epNum = 2;
+      try {
+        const iface = usbDevice.configuration.interfaces[0].alternate;
+        const found = iface.endpoints.find(e => e.direction === 'in');
+        if (found) epNum = found.endpointNumber;
+      } catch (e) {}
+
+      // Step 3: Read bulk data with timeout race so it never hangs
+      const readPromise = usbDevice.transferIn(epNum, 1024);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT_200MS')), 200));
+      
+      let res = null;
+      try {
+        res = await Promise.race([readPromise, timeoutPromise]);
+      } catch (e) {
+        logScpi('SYS', `transferIn ep${epNum}: ${e.message}`);
       }
 
       // Step 4: Acknowledge / recovery handshake
       await sendUniTVendorControl(usbDevice, 0xb0, 0xdc, 0);
 
-      if (totalBytes >= 256) {
+      if (res && res.data && res.data.byteLength > 0) {
         flashLed('ledRx', 'rx-flash');
-        rawData = new Uint8Array(totalBytes);
-        let offset = 0;
-        for (const c of chunks) {
-          rawData.set(c, offset);
-          offset += c.length;
-        }
-        parseUniTWaveformBuffer(rawData);
+        const raw = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
+        logScpi('SYS', `WAVE READ SUCCESS: ${raw.length} bytes!`);
+        parseUniTWaveformBuffer(raw);
       }
     } catch (err) {
       logScpi('ERR', `USB Poll: ${err.message}`);
@@ -1422,8 +1435,22 @@
   function startPolling() {
     stopPolling();
     if (state.acq.pollIntervalMs <= 0) return;
-    pollTimer = setInterval(() => {
+    pollTimer = setInterval(async () => {
       if (!state.connected || !state.running) return;
+
+      if (window.electronAPI && window.electronAPI.bridgeGetSample) {
+        try {
+          const b64 = await window.electronAPI.bridgeGetSample();
+          if (b64) {
+            const binStr = atob(b64);
+            const bytes = new Uint8Array(binStr.length);
+            for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+            parseUniTrendWaveform(bytes);
+            return;
+          }
+        } catch (_) {}
+      }
+
       if (state.connType === 'usb' && state.isUniTrend && usbDevice) {
         pollUniTrendUsb();
       } else {
