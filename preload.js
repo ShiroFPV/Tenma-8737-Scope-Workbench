@@ -25,7 +25,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSerialData: (callback) => {
     ipcRenderer.on('serial-rx-data', (event, data) => callback(data));
   },
+  onSerialRawData: (callback) => {
+    ipcRenderer.on('serial-rx-raw', (event, data) => callback(data));
+  },
   onSerialDisconnected: (callback) => {
     ipcRenderer.on('serial-disconnected', () => callback());
+  },
+  onComPortsChanged: (callback) => {
+    ipcRenderer.on('com-ports-changed', (event, ports) => callback(ports));
   }
 });

@@ -25,6 +25,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "serial-bridge.exe",
       "public/**/*",
       "tenma_scope_api.py"
     ]

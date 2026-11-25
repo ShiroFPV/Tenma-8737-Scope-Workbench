@@ -956,14 +956,26 @@
   // ============================================================
   // SERIAL / USB PROTOCOL & WAVEFORM PARSING
   // ============================================================
+  let rxBuffer = '';
+  let rxRawAccumulator = new Uint8Array(0);
+  let expectedBinaryLength = -1;
+
   function bindSerialListeners() {
     if (!window.electronAPI) return;
-    if (window.electronAPI.onSerialData) {
+
+    if (window.electronAPI.onSerialRawData) {
+      window.electronAPI.onSerialRawData((raw) => {
+        flashLed('ledRx', 'rx-flash');
+        const uint8 = new Uint8Array(raw);
+        handleIncomingRaw(uint8);
+      });
+    } else if (window.electronAPI.onSerialData) {
       window.electronAPI.onSerialData((payload) => {
         flashLed('ledRx', 'rx-flash');
         handleIncomingPayload(payload);
       });
     }
+
     if (window.electronAPI.onSerialDisconnected) {
       window.electronAPI.onSerialDisconnected(() => {
         if (state.connected && state.connType === 'serial') {
@@ -971,84 +983,107 @@
         }
       });
     }
+
+    if (window.electronAPI.onComPortsChanged) {
+      window.electronAPI.onComPortsChanged((ports) => {
+        logScpi('SYS', `Hardware change detected: Ports [${ports.join(', ')}]`);
+        scanHardwarePorts();
+        if (!state.connected && ports && ports.length > 0) {
+          const target = ports.find(p => p !== 'COM1') || ports[0];
+          const sel = document.getElementById('selComPort');
+          if (sel) sel.value = target;
+          const lbl = document.getElementById('connLabel');
+          if (lbl) lbl.textContent = `${target} (DETECTED)`;
+        }
+      });
+    }
   }
 
-  async function sendScpi(cmd, verbose = false) {
-    document.getElementById('statusLastCmd').textContent = cmd;
-    if (!state.connected) {
-      if (verbose) logScpi('ERR', `Not connected — command not sent: ${cmd}`);
-      return;
-    }
+  function handleIncomingRaw(chunk) {
+    if (!chunk || chunk.length === 0) return;
 
-    flashLed('ledTx', 'tx-flash');
-    if (verbose || !cmd.startsWith(':WAV:')) {
-      logScpi('TX', cmd);
-    }
+    // Append to binary accumulator
+    const prev = rxRawAccumulator;
+    const combined = new Uint8Array(prev.length + chunk.length);
+    combined.set(prev, 0);
+    combined.set(chunk, prev.length);
+    rxRawAccumulator = combined;
 
-    if (state.connType === 'serial' && window.electronAPI && window.electronAPI.serialSend) {
-      await window.electronAPI.serialSend(cmd);
-    } else if (state.connType === 'usb' && usbDevice) {
-      try {
-        const enc = new TextEncoder().encode(cmd + '\n');
-        const iface = usbDevice.configuration.interfaces[0].alternate;
-        const outEp = iface.endpoints.find(ep => ep.direction === 'out');
-        const inEp = iface.endpoints.find(ep => ep.direction === 'in');
-        if (outEp) {
-          await usbDevice.transferOut(outEp.endpointNumber, enc);
+    // Check if starting an IEEE 488.2 binary block (#<n><digits><data>)
+    if (rxRawAccumulator.length > 3 && rxRawAccumulator[0] === 35 /* '#' */) {
+      const nDigits = rxRawAccumulator[1] - 48; // ASCII '0'..'9'
+      if (nDigits > 0 && nDigits < 9 && rxRawAccumulator.length >= 2 + nDigits) {
+        let lengthStr = '';
+        for (let i = 0; i < nDigits; i++) {
+          lengthStr += String.fromCharCode(rxRawAccumulator[2 + i]);
         }
-        if (cmd.endsWith('?') && inEp) {
-          const res = await usbDevice.transferIn(inEp.endpointNumber, 16384);
-          if (res && res.data && res.data.byteLength > 0) {
-            flashLed('ledRx', 'rx-flash');
-            const text = new TextDecoder().decode(res.data);
-            handleIncomingPayload(text, new Uint8Array(res.data.buffer));
+        const totalBytes = parseInt(lengthStr, 10);
+        const headerLen = 2 + nDigits;
+        if (!isNaN(totalBytes)) {
+          if (rxRawAccumulator.length >= headerLen + totalBytes) {
+            // Full waveform payload received
+            const targetCh = pendingWaveChannel || state.activeChannel;
+            const vScale = currentVScale(targetCh);
+            const samples = new Float32Array(totalBytes);
+            for (let i = 0; i < totalBytes; i++) {
+              const rawByte = rxRawAccumulator[headerLen + i];
+              samples[i] = ((rawByte - 128) / 25.0) * vScale;
+            }
+            rxRawAccumulator = rxRawAccumulator.slice(headerLen + totalBytes);
+            ingestWaveform(targetCh, samples);
+            return;
+          } else {
+            // Still receiving frames
+            return;
           }
         }
-      } catch (err) {
-        logScpi('ERR', `USB I/O error: ${err.message}`);
       }
     }
+
+    // Try text interpretation
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(chunk);
+    handleIncomingPayload(text, chunk);
   }
 
   function handleIncomingPayload(text, rawBytes = null) {
     if (!text) return;
-    const trimmed = text.trim();
+    rxBuffer += text;
 
-    // Detect *IDN? response (comma-separated manufacturer,model,serial,firmware)
-    if (!trimmed.startsWith('#') && /^[A-Za-z0-9\-_\s]+,[^,]+,[^,]+/.test(trimmed)) {
+    // Process all complete lines terminated by \n or \r
+    while (rxBuffer.includes('\n') || rxBuffer.includes('\r')) {
+      let idx = rxBuffer.indexOf('\n');
+      if (idx === -1 || (rxBuffer.indexOf('\r') !== -1 && rxBuffer.indexOf('\r') < idx)) {
+        idx = rxBuffer.indexOf('\r');
+      }
+      const line = rxBuffer.slice(0, idx).trim();
+      rxBuffer = rxBuffer.slice(idx + 1).replace(/^[\r\n]+/, '');
+
+      if (!line) continue;
+      processIncomingLine(line);
+    }
+  }
+
+  function processIncomingLine(trimmed) {
+    // 1. Identify *IDN? response
+    if (/^[A-Za-z0-9\-_\s]+,[^,]+,[^,]+/.test(trimmed)) {
       state.idn = trimmed;
       document.getElementById('idnReadout').textContent = trimmed;
       logScpi('RX', trimmed);
       return;
     }
 
-    // Attempt IEEE 488.2 binary waveform block parsing (#<n><length><data>)
-    if (trimmed.startsWith('#') && trimmed.length > 4) {
-      const nDigits = parseInt(trimmed[1], 10);
-      if (!isNaN(nDigits) && nDigits > 0 && nDigits < 9) {
-        const byteCount = parseInt(trimmed.slice(2, 2 + nDigits), 10);
-        const targetCh = pendingWaveChannel || state.activeChannel;
-        const vScale = currentVScale(targetCh);
-        const dataOffset = 2 + nDigits;
-        const samples = new Float32Array(Math.min(byteCount, 8192));
-
-        if (rawBytes && rawBytes.length >= dataOffset + samples.length) {
-          for (let i = 0; i < samples.length; i++) {
-            const raw = rawBytes[dataOffset + i];
-            samples[i] = ((raw - 128) / 25.0) * vScale;
-          }
-        } else {
-          for (let i = 0; i < samples.length; i++) {
-            const code = trimmed.charCodeAt(dataOffset + i) & 0xff;
-            samples[i] = ((code - 128) / 25.0) * vScale;
-          }
-        }
-        ingestWaveform(targetCh, samples);
-        return;
-      }
+    // 2. Measure responses (e.g. :MEAS:VPP? CHAN1 -> "3.000" or "3.00V" or ":MEAS:VPP 3.000")
+    const numMatch = trimmed.match(/([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*V?/i);
+    if (/VPP/i.test(trimmed) && numMatch) {
+      logScpi('RX', `Vpp = ${numMatch[1]} V`);
+      return;
+    }
+    if (/FREQ/i.test(trimmed) && numMatch) {
+      logScpi('RX', `Freq = ${numMatch[1]} Hz`);
+      return;
     }
 
-    // Attempt comma-separated ASCII waveform points (at least 16 numeric samples)
+    // 3. Comma-separated ASCII waveform points (e.g., 100+ comma-separated values)
     if (trimmed.includes(',')) {
       const parts = trimmed.split(',');
       if (parts.length >= 16 && !isNaN(parseFloat(parts[0]))) {

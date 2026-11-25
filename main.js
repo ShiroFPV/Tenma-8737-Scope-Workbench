@@ -237,65 +237,57 @@ ipcMain.handle('get-all-usb-devices', async () => {
   }
 });
 
-// Native Windows Serial Port Connection using .NET System.IO.Ports
+function getBridgeExePath() {
+  const localPath = path.join(__dirname, 'serial-bridge.exe');
+  if (fs.existsSync(localPath)) return localPath;
+  const appPath = path.join(process.resourcesPath, 'serial-bridge.exe');
+  if (fs.existsSync(appPath)) return appPath;
+  const unpackedPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'serial-bridge.exe');
+  if (fs.existsSync(unpackedPath)) return unpackedPath;
+  return localPath;
+}
+
+// Native Windows Serial Port Connection using high-performance C# serial-bridge
 ipcMain.handle('serial-connect', (event, { port, baudRate }) => {
   return new Promise((resolve) => {
     disconnectSerial();
 
-    const script = `
-      [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-      $sp = New-Object System.IO.Ports.SerialPort '${port}', ${baudRate || 115200}, 'None', 8, 'One'
-      $sp.ReadTimeout = 500
-      $sp.WriteTimeout = 500
-      try {
-        $sp.Open()
-        Write-Output "OPEN_OK"
-      } catch {
-        Write-Output "OPEN_ERR: $($_.Exception.Message)"
-        exit 1
-      }
-
-      $reader = [System.IO.StreamReader]::new([System.Console]::OpenStandardInput())
-      while ($sp.IsOpen) {
-        if ($reader.Peek() -ge 0) {
-          $line = $reader.ReadLine()
-          if ($line -eq 'QUIT') { break }
-          try { $sp.WriteLine($line) } catch {}
-        }
-        try {
-          if ($sp.BytesToRead -gt 0) {
-            $incoming = $sp.ReadExisting()
-            Write-Output "RX:$incoming"
-          }
-        } catch {}
-        Start-Sleep -Milliseconds 25
-      }
-      $sp.Close()
-    `;
-
-    activeSerialProcess = spawn('powershell', ['-NoProfile', '-Command', script]);
+    const exe = getBridgeExePath();
+    activeSerialProcess = spawn(exe, [port, String(baudRate || 115200)]);
 
     let resolved = false;
+    let stdoutBuffer = '';
 
     activeSerialProcess.stdout.on('data', (data) => {
-      const text = data.toString();
-      if (!resolved) {
-        if (text.includes('OPEN_OK')) {
-          resolved = true;
-          resolve({ success: true, port });
-        } else if (text.includes('OPEN_ERR')) {
-          resolved = true;
-          resolve({ success: false, error: text.trim() });
-        }
-      }
+      stdoutBuffer += data.toString();
+      const lines = stdoutBuffer.split('\n');
+      stdoutBuffer = lines.pop();
 
-      const lines = text.split('\n');
-      for (const line of lines) {
-        if (line.startsWith('RX:')) {
-          const payload = line.replace('RX:', '').trim();
-          if (mainWindow && payload) {
-            mainWindow.webContents.send('serial-rx-data', payload);
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+
+        if (!resolved) {
+          if (line.startsWith('OPEN_OK:')) {
+            resolved = true;
+            resolve({ success: true, port });
+            continue;
+          } else if (line.startsWith('OPEN_ERR:')) {
+            resolved = true;
+            resolve({ success: false, error: line.replace('OPEN_ERR:', '').trim() });
+            continue;
           }
+        }
+
+        if (line.startsWith('B64:')) {
+          const b64 = line.substring(4);
+          try {
+            const buf = Buffer.from(b64, 'base64');
+            if (mainWindow) {
+              mainWindow.webContents.send('serial-rx-raw', buf);
+              mainWindow.webContents.send('serial-rx-data', buf.toString('utf-8'));
+            }
+          } catch (e) {}
         }
       }
     });
@@ -303,7 +295,7 @@ ipcMain.handle('serial-connect', (event, { port, baudRate }) => {
     activeSerialProcess.stderr.on('data', (data) => {
       if (!resolved) {
         resolved = true;
-        resolve({ success: false, error: data.toString() });
+        resolve({ success: false, error: data.toString().trim() });
       }
     });
 
@@ -322,6 +314,24 @@ ipcMain.handle('serial-connect', (event, { port, baudRate }) => {
     }, 3500);
   });
 });
+
+// Periodic hardware scanner to alert UI on cable plug / power-on
+let lastDetectedPortsKey = '';
+setInterval(() => {
+  if (!mainWindow) return;
+  exec('reg query HKLM\\HARDWARE\\DEVICEMAP\\SERIALCOMM', (err, stdout) => {
+    if (!err && stdout) {
+      const matches = stdout.match(/REG_SZ\s+(COM\d+)/gi);
+      if (matches) {
+        const currentPorts = matches.map(m => m.replace(/REG_SZ\s+/i, '').trim().toUpperCase()).sort().join(',');
+        if (currentPorts !== lastDetectedPortsKey) {
+          lastDetectedPortsKey = currentPorts;
+          mainWindow.webContents.send('com-ports-changed', currentPorts.split(','));
+        }
+      }
+    }
+  });
+}, 1800);
 
 ipcMain.handle('serial-send', (event, command) => {
   if (activeSerialProcess && activeSerialProcess.stdin.writable) {
