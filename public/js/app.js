@@ -188,6 +188,22 @@
     renderMeasurements();
     drawScope();
     drawFFT();
+
+    // Auto-connect to Tenma 8737 WinUSB Bridge if present
+    if (window.electronAPI && window.electronAPI.bridgeSendCmd) {
+      setTimeout(async () => {
+        try {
+          const testAlive = await window.electronAPI.bridgeSendCmd('cc');
+          if (testAlive) {
+            onConnected('usb', 'TENMA 8737 (WinUSB Hardware)');
+            state.isUniTrend = true;
+            state.running = true;
+            syncAcquisitionUI();
+            logScpi('SYS', 'Auto-connected to Tenma 8737 hardware via native WinUSB bridge.');
+          }
+        } catch (_) {}
+      }, 300);
+    }
     logScpi('SYS', 'Tenma 8737 Instrument Control initialized. Connect hardware via COM port or Direct USB.');
   }
 
