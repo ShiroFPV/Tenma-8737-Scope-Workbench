@@ -999,6 +999,43 @@
     }
   }
 
+  async function sendScpi(cmd, verbose = false) {
+    document.getElementById('statusLastCmd').textContent = cmd;
+    if (!state.connected) {
+      if (verbose) logScpi('ERR', `Not connected — command not sent: ${cmd}`);
+      return;
+    }
+
+    flashLed('ledTx', 'tx-flash');
+    if (verbose || !cmd.startsWith(':WAV:')) {
+      logScpi('TX', cmd);
+    }
+
+    if (state.connType === 'serial' && window.electronAPI && window.electronAPI.serialSend) {
+      await window.electronAPI.serialSend(cmd);
+    } else if (state.connType === 'usb' && usbDevice) {
+      try {
+        const enc = new TextEncoder().encode(cmd + '\n');
+        const iface = usbDevice.configuration.interfaces[0].alternate;
+        const outEp = iface.endpoints.find(ep => ep.direction === 'out');
+        const inEp = iface.endpoints.find(ep => ep.direction === 'in');
+        if (outEp) {
+          await usbDevice.transferOut(outEp.endpointNumber, enc);
+        }
+        if (cmd.endsWith('?') && inEp) {
+          const res = await usbDevice.transferIn(inEp.endpointNumber, 16384);
+          if (res && res.data && res.data.byteLength > 0) {
+            flashLed('ledRx', 'rx-flash');
+            const uint8 = new Uint8Array(res.data.buffer);
+            handleIncomingRaw(uint8);
+          }
+        }
+      } catch (err) {
+        logScpi('ERR', `USB I/O error: ${err.message}`);
+      }
+    }
+  }
+
   function handleIncomingRaw(chunk) {
     if (!chunk || chunk.length === 0) return;
 
