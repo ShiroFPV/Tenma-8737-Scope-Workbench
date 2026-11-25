@@ -933,7 +933,8 @@
 
   async function sendUniTVendorControl(device, request, value, index = 0) {
     if (!device) return null;
-    const recipients = ['interface', 'endpoint', 'device'];
+    // Uni-Trend USB protocol uses bmRequestType 0x42 (Vendor, Endpoint)
+    const recipients = ['endpoint', 'interface', 'device'];
     for (const rec of recipients) {
       try {
         const res = await device.controlTransferOut({
@@ -1267,57 +1268,78 @@
     if (!usbDevice || isFetchingUsb || !state.running) return;
     isFetchingUsb = true;
     try {
+      let rawData = null;
       // Step 1: Request waveform dump
       await sendUniTVendorControl(usbDevice, 0xb1, 0xe1, 0);
-      await new Promise(r => setTimeout(r, 25));
+      await new Promise(r => setTimeout(r, 30));
 
       // Step 2: Arm bulk transfer on endpoint 2
       await sendUniTVendorControl(usbDevice, 0xb0, 0x01, 2);
 
-      // Step 3: Bulk read 1024 bytes from bulk IN endpoint
-      const inEp = findBulkInEndpoint(usbDevice);
-      const res = await usbDevice.transferIn(inEp, 1024);
+      // Step 3: Read bulk data from Endpoint 2 (accumulate 1024 bytes)
+      const inEp = 2;
+      const chunks = [];
+      let totalBytes = 0;
+      for (let attempt = 0; attempt < 3 && totalBytes < 1024; attempt++) {
+        try {
+          const res = await usbDevice.transferIn(inEp, 1024 - totalBytes);
+          if (res && res.data && res.data.byteLength > 0) {
+            const u8 = new Uint8Array(res.data.buffer, res.data.byteOffset, res.data.byteLength);
+            chunks.push(u8);
+            totalBytes += u8.length;
+          } else {
+            break;
+          }
+        } catch (e) {
+          break;
+        }
+      }
 
       // Step 4: Acknowledge / recovery handshake
       await sendUniTVendorControl(usbDevice, 0xb0, 0xdc, 0);
 
-      if (res && res.status === 'ok' && res.data && res.data.byteLength >= 1024) {
+      if (totalBytes >= 256) {
         flashLed('ledRx', 'rx-flash');
-        const raw = new Uint8Array(res.data.buffer);
-        parseUniTWaveformBuffer(raw);
+        rawData = new Uint8Array(totalBytes);
+        let offset = 0;
+        for (const c of chunks) {
+          rawData.set(c, offset);
+          offset += c.length;
+        }
+        parseUniTWaveformBuffer(rawData);
       }
     } catch (err) {
-      console.warn('Uni-T USB poll error:', err);
+      logScpi('ERR', `USB Poll: ${err.message}`);
     } finally {
       isFetchingUsb = false;
     }
   }
 
   function parseUniTWaveformBuffer(raw) {
-    if (!raw || raw.length < 1024) return;
+    if (!raw || raw.length < 256) return;
 
-    // CH1 Parameters from header
-    const ySenseIdx1 = raw[5];
-    const yProbeIdx1 = raw[19];
-    const xSenseIdx1 = raw[10];
-    const yPos1 = raw[6];
-    const inverted1 = Boolean(raw[9]);
-    const coupIdx1 = raw[12];
-    const bwLimit1 = Boolean(raw[15]);
+    // CH1 Parameters from header (if header >= 32 bytes)
+    const ySenseIdx1 = raw.length > 5 ? raw[5] : 8;
+    const yProbeIdx1 = raw.length > 19 ? raw[19] : 1;
+    const xSenseIdx1 = raw.length > 10 ? raw[10] : 17;
+    const yPos1 = raw.length > 6 ? raw[6] : 128;
+    const inverted1 = raw.length > 9 ? Boolean(raw[9]) : false;
+    const coupIdx1 = raw.length > 12 ? raw[12] : 0;
+    const bwLimit1 = raw.length > 15 ? Boolean(raw[15]) : false;
 
     // CH2 Parameters from header
-    const ySenseIdx2 = raw[37];
-    const yProbeIdx2 = raw[51];
-    const xSenseIdx2 = raw[42];
-    const yPos2 = raw[38];
-    const inverted2 = Boolean(raw[41]);
-    const coupIdx2 = raw[44];
-    const bwLimit2 = Boolean(raw[47]);
+    const ySenseIdx2 = raw.length > 37 ? raw[37] : 8;
+    const yProbeIdx2 = raw.length > 51 ? raw[51] : 1;
+    const xSenseIdx2 = raw.length > 42 ? raw[42] : 17;
+    const yPos2 = raw.length > 38 ? raw[38] : 128;
+    const inverted2 = raw.length > 41 ? Boolean(raw[41]) : false;
+    const coupIdx2 = raw.length > 44 ? raw[44] : 0;
+    const bwLimit2 = raw.length > 47 ? Boolean(raw[47]) : false;
 
     // Channel state from byte 2
-    const chState = raw[2];
-    const ch1Active = (chState & 0x01) !== 0 || chState === 0 || chState === 2;
-    const ch2Active = (chState & 0x02) !== 0 || chState === 1 || chState === 2;
+    const chState = raw.length > 2 ? raw[2] : 0;
+    const ch1Active = state.channels[1].enabled || (chState & 0x01) !== 0 || chState === 0 || chState === 2;
+    const ch2Active = state.channels[2].enabled || (chState & 0x02) !== 0 || chState === 1 || chState === 2;
 
     const probe1 = Math.pow(10, Math.min(3, yProbeIdx1 || 0));
     const probe2 = Math.pow(10, Math.min(3, yProbeIdx2 || 0));
@@ -1354,25 +1376,26 @@
     const nearestT = TIME_STEPS.findIndex(t => Math.abs(t - tDiv) < 1e-9);
     if (nearestT !== -1) state.horiz.tIdx = nearestT;
 
-    // Extract samples (25 sample counts per vertical division)
+    // Extract samples:
+    // In 1024-byte packet: CH1 at 516..766 (250 points), CH2 at 770..1020 (250 points)
+    // 25 sample counts per vertical division
     const countPerDiv = 25.0;
     const center1 = (yPos1 > 0 && yPos1 < 255) ? yPos1 : 128;
     const center2 = (yPos2 > 0 && yPos2 < 255) ? yPos2 : 128;
 
     if (ch1Active) {
       const s1 = new Float32Array(250);
+      const ch1Offset = raw.length >= 766 ? 516 : (raw.length >= 254 ? 4 : 0);
       for (let i = 0; i < 250; i++) {
-        const b = raw[516 + i];
+        const b = (ch1Offset + i < raw.length) ? raw[ch1Offset + i] : center1;
         let v = ((b - center1) / countPerDiv) * vDiv1;
         if (inverted1) v = -v;
         s1[i] = v;
       }
       state.waveforms[1] = s1;
-    } else {
-      state.waveforms[1] = null;
     }
 
-    if (ch2Active) {
+    if (ch2Active && raw.length >= 1020) {
       const s2 = new Float32Array(250);
       for (let i = 0; i < 250; i++) {
         const b = raw[770 + i];
@@ -1381,8 +1404,6 @@
         s2[i] = v;
       }
       state.waveforms[2] = s2;
-    } else {
-      state.waveforms[2] = null;
     }
 
     const activeWave = state.waveforms[state.activeChannel] || state.waveforms[1];

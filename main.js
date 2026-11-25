@@ -48,6 +48,13 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'public', 'index.html'));
 
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12') {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
     disconnectSerial();
